@@ -93,6 +93,17 @@ async function handleList(req, res, url) {
   send(res, 200, { root: name, entries, truncated });
 }
 
+async function handleRoots(req, res) {
+  // The folders the user declared at boot. This is NOT an arbitrary folder
+  // browser — it only ever returns what ATELIER_ROOTS allowlisted, so the
+  // UI can offer them as attach candidates without widening access.
+  const roots = allowlist.map((real) => ({
+    path: real,
+    name: path.basename(real) || real,
+  }));
+  send(res, 200, { roots });
+}
+
 async function handleGitStatus(req, res, url) {
   const root = url.searchParams.get('root');
   const { real } = resolveRoot(root, allowlist);
@@ -148,6 +159,7 @@ async function handleVerify(req, res) {
 
 const ROUTES = {
   'GET /api/list': handleList,
+  'GET /api/roots': handleRoots,
   'GET /api/git-status': handleGitStatus,
   'POST /api/branch': handleBranch,
   'POST /api/read': handleRead,

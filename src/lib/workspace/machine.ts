@@ -132,6 +132,7 @@ export const initialState: WsState = {
 export type WsAction =
   | { type: 'SET_BRIEF'; brief: string }
   | { type: 'ATTACH'; project: AttachedProject }
+  | { type: 'ATTACH_FAIL'; error: string }
   | { type: 'DETACH' }
   | { type: 'BEGIN_ANALYSIS' }
   | { type: 'ANALYSIS_OK'; listing: DirListing; analysis: ProjectAnalysis }
@@ -186,6 +187,12 @@ export function workspaceReducer(state: WsState, action: WsAction): WsState {
 
     case 'DETACH':
       return { ...initialState, brief: state.brief };
+
+    case 'ATTACH_FAIL':
+      // A folder couldn't be attached (allowlist refusal, missing path…).
+      // Stay on the input stage and show the error; clear on next attempt.
+      if (state.stage !== 'input') return state;
+      return { ...state, error: action.error };
 
     case 'BEGIN_ANALYSIS':
       if (state.stage !== 'input' || !state.attached) return state;

@@ -15,9 +15,9 @@
        final approval gate, and even then only the opt-in branch.
    ============================================================ */
 
-import { useCallback, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { host } from '../host';
-import type { DirListing, VerifyReport } from '../host/types';
+import type { DirListing, VerifyReport, RootCandidate } from '../host/types';
 import { analyze, type ProjectAnalysis } from '../project/analyze';
 import { decompose, type Workstream } from '../project/decompose';
 import {
@@ -59,6 +59,10 @@ export { slugToBranch, isValidBranchName } from './machine';
 export interface WorkspaceState {
   stage: Stage;
   brief: string;
+  /** Which host is live — 'mock' offers samples, 'local' offers real roots. */
+  hostKind: 'mock' | 'local';
+  /** Folders the user can attach (samples in mock, allowlisted roots in local). */
+  roots: RootCandidate[];
   attached?: AttachedProject;
   listing?: DirListing;
   analysis?: ProjectAnalysis;
@@ -88,6 +92,8 @@ export interface WorkspaceState {
 
   setBrief: (b: string) => void;
   attach: (id: string, label: string) => Promise<void>;
+  /** Re-fetch the attachable roots (e.g. after starting the sidecar). */
+  reloadRoots: () => Promise<void>;
   detach: () => void;
   runAnalysis: () => Promise<void>;
   runDecompose: () => Promise<void>;
@@ -135,6 +141,25 @@ export function useWorkspace(): WorkspaceState {
   // Guards against overlapping async runs / late results after reset.
   const runId = useRef(0);
 
+  // Host metadata: which folders can be attached. Loads once on mount (and
+  // if the host is swapped by resolveHost, roots just stay []). This is not
+  // journey state, so it lives outside the pure reducer.
+  const [roots, setRoots] = useState<RootCandidate[]>([]);
+  const rootsLoaded = useRef(false);
+  const loadRoots = useCallback(async () => {
+    try {
+      const r = await host.listRoots();
+      setRoots(r);
+    } catch {
+      setRoots([]);
+    }
+  }, []);
+  useEffect(() => {
+    if (rootsLoaded.current) return;
+    rootsLoaded.current = true;
+    void loadRoots();
+  }, [loadRoots]);
+
   // Read the latest state from a ref the reducer result updates each render.
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -144,8 +169,20 @@ export function useWorkspace(): WorkspaceState {
   }, []);
 
   const attach = useCallback(async (id: string, label: string) => {
-    const git = await host.gitStatus(id);
-    dispatch({ type: 'ATTACH', project: { id, label, git } });
+    try {
+      // gitStatus doubles as the reachability + allowlist probe: if the
+      // sidecar refuses the path (outside ATELIER_ROOTS, missing), this
+      // rejects and we surface the error instead of attaching a dead root.
+      const git = await host.gitStatus(id);
+      dispatch({ type: 'ATTACH', project: { id, label, git } });
+    } catch (e) {
+      // Surface the message on stage 1 without leaving it (ATTACH never
+      // ran, so we're still on 'input'). ATTACH_FAIL is guarded to 'input'.
+      dispatch({
+        type: 'ATTACH_FAIL',
+        error: e instanceof Error ? e.message : 'Could not attach that folder.',
+      });
+    }
   }, []);
 
   const detach = useCallback(() => {
@@ -406,6 +443,9 @@ export function useWorkspace(): WorkspaceState {
   return {
     stage: state.stage,
     brief: state.brief,
+    hostKind: host.kind,
+    roots,
+    reloadRoots: loadRoots,
     attached: state.attached,
     listing: state.listing,
     analysis: state.analysis,

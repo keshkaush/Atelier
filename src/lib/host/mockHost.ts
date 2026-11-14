@@ -15,6 +15,7 @@ import type {
   FileContent,
   GitStatus,
   HostBridge,
+  RootCandidate,
   VerifyReport,
 } from './types';
 import { sampleById, SAMPLE_PROJECTS } from './samples';
@@ -32,6 +33,12 @@ function resolve(root: string) {
 
 export const mockHost: HostBridge = {
   kind: 'mock',
+
+  async listRoots(): Promise<RootCandidate[]> {
+    await delay(120);
+    // In mock mode the "roots" are the canned sample ids.
+    return SAMPLE_PROJECTS.map((p) => ({ path: p.id, name: p.label }));
+  },
 
   async listProject(root: string): Promise<DirListing> {
     await delay(420);

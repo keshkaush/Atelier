@@ -94,11 +94,15 @@ export function WorkspaceView() {
         <StageInput
           brief={ws.brief}
           attached={ws.attached}
+          hostKind={ws.hostKind}
+          roots={ws.roots}
           onBrief={ws.setBrief}
           onAttach={ws.attach}
           onDetach={ws.detach}
           onAnalyze={ws.runAnalysis}
+          onReloadRoots={ws.reloadRoots}
           busy={ws.busy}
+          error={ws.error}
         />
       ) : null}
 

@@ -37,7 +37,7 @@ Env vars:
 
 | Var | Where | Meaning |
 | --- | --- | --- |
-| `ATELIER_ROOTS` | sidecar | `;`-separated absolute paths it may read/git. Nothing else is reachable. |
+| `ATELIER_ROOTS` | sidecar | `;`-separated absolute paths it may read/git. Nothing else is reachable. These are what Step 1 offers you to attach. |
 | `ATELIER_PORT` | sidecar | Port to bind (default `5179`, loopback only). |
 | `ATELIER_TOKEN` | sidecar + vite | Shared secret. Sidecar prints one on boot if unset; Vite injects it on the `/api` proxy so the browser never holds it. |
 | `VITE_HOST` | app | `local` selects the sidecar host; unset = mock. |
@@ -96,7 +96,7 @@ To make the desks generate real output, call `complete()` in `src/lib/model.ts` 
 
 The project-aware flow runs a nine-step journey. The first half is analysis-first and writes nothing; the second half is a reviewable dry run that still writes nothing:
 
-1. **Brief + attach** — describe the change and attach a project directory.
+1. **Brief + attach** — describe the change and attach a project directory. In demo mode you pick a canned sample; in local mode (`VITE_HOST=local`) the sidecar offers the folders it was started with (`ATELIER_ROOTS`), or you type an absolute path — which the host only accepts if it's inside that allowlist. No arbitrary filesystem browsing.
 2. **Analyse** — structural detection of framework, styling, components, tokens and themes, each claim backed by the files that prove it. Dependencies, build output, lockfiles, secrets and binaries are never crawled (the ignored tally is shown explicitly).
 3. **Decompose** — the brief split into workstreams, one per desk, grounded in the real paths each will touch.
 4. **Propose** — a versioned high-level design proposal: requirement understanding, proposed design, a schematic wireframe preview, and implementation impact.

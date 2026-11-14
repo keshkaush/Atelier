@@ -80,6 +80,14 @@ export interface VerifyReport {
   steps: { typecheck: VerifyStep; lint: VerifyStep; test: VerifyStep };
 }
 
+/** One attachable project root offered by the real host. */
+export interface RootCandidate {
+  /** Absolute path (only ever a declared, allowlisted root). */
+  path: string;
+  /** Display name (basename). */
+  name: string;
+}
+
 /**
  * The single surface the workspace UI talks to.
  *
@@ -91,6 +99,12 @@ export interface VerifyReport {
  */
 export interface HostBridge {
   readonly kind: 'mock' | 'local';
+  /**
+   * Folders the user can attach. Mock returns the canned sample ids;
+   * local returns the allowlisted roots the sidecar was started with.
+   * A real host NEVER browses arbitrary paths — only declared roots.
+   */
+  listRoots(): Promise<RootCandidate[]>;
   listProject(root: string): Promise<DirListing>;
   gitStatus(root: string): Promise<GitStatus>;
   createBranch(root: string, name: string): Promise<BranchResult>;

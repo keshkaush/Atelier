@@ -175,6 +175,15 @@ test('resolveRoot accepts a nested directory inside an allowed root', () => {
   assert.doesNotThrow(() => resolveRoot(nested, allowlist));
 });
 
+test('loadAllowlist splits multiple roots and drops non-existent ones', () => {
+  const a = makeRepo();
+  const b = makeRepo();
+  const allowlist = loadAllowlist({ ATELIER_ROOTS: `${a};${b};/does/not/exist` });
+  assert.equal(allowlist.length, 2, 'two real roots, missing one dropped');
+  assert.ok(allowlist.includes(realpathSync(a)));
+  assert.ok(allowlist.includes(realpathSync(b)));
+});
+
 test('safeJoin blocks .. escapes and absolute paths', () => {
   const allowed = realpathSync(makeRepo());
   assert.doesNotThrow(() => safeJoin(allowed, 'src/App.tsx'));

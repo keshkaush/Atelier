@@ -18,6 +18,7 @@ import type {
   FileContent,
   GitStatus,
   HostBridge,
+  RootCandidate,
   VerifyReport,
 } from './types';
 
@@ -50,6 +51,11 @@ const q = (root: string) => `root=${encodeURIComponent(root)}`;
 
 export const localHost: HostBridge = {
   kind: 'local',
+
+  async listRoots(): Promise<RootCandidate[]> {
+    const { roots } = await getJson<{ roots: RootCandidate[] }>('/api/roots');
+    return roots ?? [];
+  },
 
   listProject(root: string): Promise<DirListing> {
     return getJson<DirListing>(`/api/list?${q(root)}`);

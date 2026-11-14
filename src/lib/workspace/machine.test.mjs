@@ -96,6 +96,23 @@ test('illegal events are ignored, not thrown (guarded)', () => {
   assert.equal(s.stage, 'approved');
 });
 
+test('ATTACH_FAIL records an error on input; a later attach clears it', () => {
+  let s = run(initialState, { type: 'ATTACH_FAIL', error: 'outside allowlist' });
+  assert.equal(s.stage, 'input');
+  assert.equal(s.error, 'outside allowlist');
+  // A successful attach resets (initialState spread) and clears the error.
+  s = run(s, attached());
+  assert.equal(s.error, undefined);
+  assert.ok(s.attached);
+});
+
+test('ATTACH_FAIL is ignored outside the input stage', () => {
+  let s = toApproved();
+  s = run(s, { type: 'ATTACH_FAIL', error: 'nope' });
+  assert.equal(s.stage, 'approved');
+  assert.equal(s.error, undefined);
+});
+
 /* ---------------------------------------------------------- */
 /* stage 6 — branch prep                                       */
 /* ---------------------------------------------------------- */
