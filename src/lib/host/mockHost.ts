@@ -12,8 +12,10 @@
 import type {
   BranchResult,
   DirListing,
+  FileContent,
   GitStatus,
   HostBridge,
+  VerifyReport,
 } from './types';
 import { sampleById, SAMPLE_PROJECTS } from './samples';
 
@@ -49,13 +51,39 @@ export const mockHost: HostBridge = {
 
   async createBranch(root: string, name: string): Promise<BranchResult> {
     await delay(120);
-    // Milestone 2 does the real thing. Here we only describe the intent
-    // — never write. This keeps the "no mutation before approval"
-    // principle literally true in the mock.
+    // The mock never writes. It describes the intent so the UI flow is
+    // exercisable without a sidecar — the "no mutation" principle stays
+    // literally true here.
     return {
       ok: true,
       branch: name,
-      note: `Dry run — the mock host does not create branches. Milestone 2 will run \`git checkout -b ${name}\` in ${resolve(root).listing.root}.`,
+      note: `Dry run — the mock host does not create branches. The local host would run \`git checkout -b ${name}\` in ${resolve(root).listing.root}.`,
+    };
+  },
+
+  async readFile(root: string, filePath: string): Promise<FileContent> {
+    await delay(60);
+    // No real bytes in mock mode — synthesise a small, honest stub so the
+    // diff view has an "old" side to render against, labelled as such.
+    const base = filePath.split('/').pop() ?? filePath;
+    const stub = `/* ${base} — mock contents of ${resolve(root).listing.root}/${filePath} (no real file read) */\n`;
+    return { path: filePath, exists: true, content: stub, size: stub.length };
+  },
+
+  async verify(root: string): Promise<VerifyReport> {
+    await delay(900);
+    // A canned, all-green report so the QA stage is walkable offline.
+    const pass = { status: 'pass' as const, elapsedMs: 420, exitCode: 0, output: '' };
+    return {
+      ranAt: Date.now(),
+      isNodeProject: true,
+      packageManager: 'npm',
+      packageName: resolve(root).listing.root,
+      steps: {
+        typecheck: { ...pass, output: 'tsc -b — 0 errors (simulated)' },
+        lint: { status: 'skipped', note: 'No lint script (mock).' },
+        test: { ...pass, output: 'tests passed (simulated)' },
+      },
     };
   },
 };

@@ -43,19 +43,59 @@ export interface DirListing {
 export interface BranchResult {
   ok: boolean;
   branch?: string;
+  /** Set when the tree was dirty and the caller didn't opt in. */
+  dirty?: boolean;
   /** Human-readable note, e.g. a dry-run explanation in mock mode. */
   note?: string;
 }
 
+/** Contents of one file, read read-only through the host for the diff view. */
+export interface FileContent {
+  path: string;
+  exists: boolean;
+  content: string;
+  size?: number;
+  /** True if the host clipped a very large file. */
+  truncated?: boolean;
+}
+
+/** Outcome of one verification step (typecheck / lint / test). */
+export type StepStatus = 'pass' | 'fail' | 'skipped' | 'unavailable' | 'error';
+
+export interface VerifyStep {
+  status: StepStatus;
+  note?: string;
+  /** Tail of the command output (bounded by the host). */
+  output?: string;
+  elapsedMs?: number;
+  exitCode?: number;
+}
+
+/** The QA stage's structured report. */
+export interface VerifyReport {
+  ranAt: number;
+  isNodeProject: boolean;
+  packageManager: string | null;
+  packageName?: string;
+  steps: { typecheck: VerifyStep; lint: VerifyStep; test: VerifyStep };
+}
+
 /**
  * The single surface the workspace UI talks to.
- * Milestone 1 ships MockHost only. `createBranch` exists now so the
- * state machine and proposal decisions are shaped for Milestone 2;
- * the mock returns a dry-run note and never writes anything.
+ *
+ * Milestone 1 shipped MockHost only. Milestone 2 adds LocalHost (a Node
+ * sidecar behind `/api`). Both implement the same surface, so analysis,
+ * diff-shaping and QA run unchanged against either. `createBranch`
+ * mutates disk — it is ONLY called after the user's explicit confirm in
+ * the branch-prep stage; nothing else here writes.
  */
 export interface HostBridge {
   readonly kind: 'mock' | 'local';
   listProject(root: string): Promise<DirListing>;
   gitStatus(root: string): Promise<GitStatus>;
   createBranch(root: string, name: string): Promise<BranchResult>;
+  /** Read one file read-only (for the dry-run diff). Never writes. */
+  readFile(root: string, path: string): Promise<FileContent>;
+  /** Run the target project's typecheck/lint/test. Never writes. */
+  verify(root: string): Promise<VerifyReport>;
 }
