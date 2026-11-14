@@ -9,15 +9,20 @@
    here and dispatched as finished objects, keeping the reducer pure.
 
    Mutation discipline (the whole point of the milestone):
-     · the ONLY disk-mutating call is `createBranch`, fired from
-       `confirmBranch` — an explicit user action on the branch-prep
-       stage. Everything else is read-only. Nothing writes before the
-       final approval gate, and even then only the opt-in branch.
+     · exactly two disk-mutating calls exist, each behind its own
+       explicit user action:
+         - `createBranch`, fired from `confirmBranch` (opt-in branch at
+           the branch-prep stage)
+         - `applyEdits`, fired from `confirmApply` (the accepted files,
+           written only at the apply-confirmation gate)
+     · everything else is read-only. Generating the plan, accepting
+       files and leaving review are all provisional; nothing is written
+       until the user confirms the frozen batch.
    ============================================================ */
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { host } from '../host';
-import type { DirListing, VerifyReport, RootCandidate } from '../host/types';
+import type { ApplyResult, DirListing, FileEdit, VerifyReport, RootCandidate } from '../host/types';
 import { analyze, type ProjectAnalysis } from '../project/analyze';
 import { decompose, type Workstream } from '../project/decompose';
 import {
@@ -33,6 +38,7 @@ import {
   acceptedDiffs,
   canAdvanceBranchPrep,
   displayedProposal,
+  hasDiskWrites,
   initialState,
   isBusy,
   latestVersion,
@@ -82,8 +88,14 @@ export interface WorkspaceState {
   plan?: ImplementationPlanState;
   /** Per-file review decisions (UI state only — nothing written). */
   reviewDecisions: Record<string, 'accept' | 'skip'>;
-  /** Files the user has accepted for the (dry-run) implementation. */
+  /** Files the user has accepted for the (not-yet-written) implementation. */
   acceptedFiles: FileDiff[];
+  /** The frozen batch awaiting (or holding) an explicit apply decision. */
+  pendingEdits?: FileEdit[];
+  /** The host's outcome for the last apply, if one ran. */
+  applyResult?: ApplyResult;
+  /** True when the host reported files really landed on disk. */
+  hasDiskWrites: boolean;
   /** Stage 9 — the host's QA report. */
   qa?: VerifyReport;
   /** Derived overall QA verdict. */
@@ -118,14 +130,20 @@ export interface WorkspaceState {
   backToProposal: () => void;
   /** Step back from the gate to branch-prep. */
   backToBranchPrep: () => void;
-  /** Pass the final gate and generate the dry-run implementation. */
+  /** Pass the final gate and generate the implementation proposal. */
   beginImplement: () => Promise<void>;
   /** Flip one file's review decision (accept/skip). */
   setReviewDecision: (path: string, decision: 'accept' | 'skip') => void;
   /** Accept or skip every changed file at once. */
   setAllReviewDecisions: (decision: 'accept' | 'skip') => void;
-  /** Pass review and run QA through the host. */
-  approveFinal: () => Promise<void>;
+  /** Freeze the accepted set and open the apply-confirmation gate. */
+  openApplyConfirm: () => void;
+  /** THE write: apply the frozen batch, then run QA on the updated root. */
+  confirmApply: () => Promise<void>;
+  /** Verify without writing anything (skip the apply). */
+  skipApply: () => Promise<void>;
+  /** Un-freeze the batch and return to review. */
+  backFromApply: () => void;
   /** Return from QA to the review stage. */
   backToReview: () => void;
   reset: () => void;
@@ -383,6 +401,9 @@ export function useWorkspace(): WorkspaceState {
         type: 'IMPLEMENT_OK',
         plan: {
           diffs: implPlan.diffs,
+          // The write payloads travel with the plan: review shows diffs, but
+          // only complete preimage+replacement pairs can be applied safely.
+          edits: implPlan.edits,
           skipped: implPlan.skipped,
           totals: implPlan.totals,
           generatedAt: implPlan.generatedAt,
@@ -411,13 +432,17 @@ export function useWorkspace(): WorkspaceState {
     dispatch({ type: 'SET_REVIEW_DECISIONS', decisions });
   }, []);
 
-  const approveFinal = useCallback(async () => {
-    const s = stateRef.current;
-    const attached = s.attached;
-    if (!attached || !s.plan) return;
+  /* ---------------------------------------------------------- */
+  /* stage 8b — write-on-confirm                                 */
+  /* ---------------------------------------------------------- */
 
-    const my = ++runId.current;
-    dispatch({ type: 'APPROVE_FINAL' });
+  /** Run QA against whatever the root looks like now. Shared by both paths. */
+  const runQa = useCallback(async (my: number) => {
+    const attached = stateRef.current.attached;
+    if (!attached) {
+      dispatch({ type: 'QA_FAIL', error: 'No project is attached.' });
+      return;
+    }
     try {
       const report = await host.verify(attached.id);
       if (my !== runId.current) return;
@@ -429,6 +454,67 @@ export function useWorkspace(): WorkspaceState {
         error: e instanceof Error ? e.message : 'Verification failed to run.',
       });
     }
+  }, []);
+
+  const openApplyConfirm = useCallback(() => {
+    dispatch({ type: 'OPEN_APPLY_CONFIRM' });
+  }, []);
+
+  const confirmApply = useCallback(async () => {
+    const s = stateRef.current;
+    const attached = s.attached;
+    // Guard on the stage, not just on which button rendered: a stray or
+    // stale call from any other stage must never reach the write.
+    if (s.stage !== 'apply-confirm') return;
+    if (!attached) return;
+    const pending = s.pendingEdits ?? [];
+    if (!pending.length) return;
+
+    const my = ++runId.current;
+    dispatch({ type: 'BEGIN_APPLY' });
+    let result: ApplyResult;
+    try {
+      // THE write. The sidecar re-validates containment + preimages itself,
+      // so a stale proposal is refused rather than silently overwriting.
+      result = await host.applyEdits(attached.id, pending);
+    } catch (e) {
+      if (my !== runId.current) return;
+      // Transport/refusal error: nothing is known to have landed. Say so and
+      // stay at the gate — never fall through to QA.
+      dispatch({
+        type: 'APPLY_FAILED',
+        result: { status: 'failed', applied: [], issues: [], note: undefined },
+        error: e instanceof Error ? e.message : 'Could not apply the reviewed changes.',
+      });
+      return;
+    }
+    if (my !== runId.current) return;
+
+    if (result.status !== 'applied' && result.status !== 'simulated') {
+      // conflict | failed | partial — report exactly what the host said and
+      // keep the frozen batch on screen so the user can re-review.
+      dispatch({ type: 'APPLY_FAILED', result });
+      return;
+    }
+
+    dispatch({ type: 'APPLY_SUCCEEDED', result });
+    // QA now runs against the updated root (or the untouched one, for a
+    // simulated write in mock mode) — the QA copy distinguishes the two.
+    await runQa(my);
+  }, [runQa]);
+
+  const skipApply = useCallback(async () => {
+    const stage = stateRef.current.stage;
+    if (stage !== 'review' && stage !== 'apply-confirm') return;
+    const my = ++runId.current;
+    // Nothing is written: no pendingEdits are sent, and the reducer drops
+    // them so a later attempt can't apply a stale batch.
+    dispatch({ type: 'SKIP_APPLY' });
+    await runQa(my);
+  }, [runQa]);
+
+  const backFromApply = useCallback(() => {
+    dispatch({ type: 'BACK_TO_REVIEW_FROM_APPLY' });
   }, []);
 
   const backToReview = useCallback(() => {
@@ -459,6 +545,9 @@ export function useWorkspace(): WorkspaceState {
     plan: state.plan,
     reviewDecisions: state.reviewDecisions,
     acceptedFiles: acceptedDiffs(state),
+    pendingEdits: state.pendingEdits,
+    applyResult: state.applyResult,
+    hasDiskWrites: hasDiskWrites(state.applyResult),
     qa: state.qa,
     qaVerdict: qaVerdict(state),
     error: state.error,
@@ -482,7 +571,10 @@ export function useWorkspace(): WorkspaceState {
     beginImplement,
     setReviewDecision,
     setAllReviewDecisions,
-    approveFinal,
+    openApplyConfirm,
+    confirmApply,
+    skipApply,
+    backFromApply,
     backToReview,
     reset,
     busy: isBusy(state),

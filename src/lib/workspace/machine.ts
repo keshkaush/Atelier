@@ -24,7 +24,11 @@
      branch-prep ──BRANCH_PREP_OK──▶ final-approve
      final-approve ──BEGIN_IMPLEMENT──▶ implementing
      implementing ──IMPLEMENT_OK──▶ review
-     review ──APPROVE_FINAL──▶ qa
+     review ──OPEN_APPLY_CONFIRM──▶ apply-confirm  (freezes accepted edits)
+     apply-confirm ──BEGIN_APPLY──▶ applying
+     applying ──APPLY_SUCCEEDED──▶ qa
+     applying ──APPLY_FAILED──▶ apply-confirm      (conflict/partial; no QA)
+     review|apply-confirm ──SKIP_APPLY──▶ qa       (verify without writing)
      qa ──QA_REPORT──▶ complete
      any ──RESET──▶ initial
      any ──DETACH──▶ input (project + downstream cleared)
@@ -32,18 +36,19 @@
    Back edges (each guarded to its own stage):
      reviewed ──BACK_TO_BRANCH_PREP──▶ branch-prep   (from final-approve)
      reviewed ──BACK_TO_REVIEW──▶ review             (from qa)
+     review ──BACK_TO_REVIEW_FROM_APPLY──▶ review    (unfreezes the apply set)
      * the proposal's own BACK_* edges handle steps 1–5.
 
-   Milestone-2 invariant: nothing before `begin implementation` requires
-   any disk write except the *opt-in* branch creation (a guarded, explicit
-   user action). The reducer itself is pure — it only records stage and
-   data; the hook performs I/O behind explicit confirm actions.
+   Write invariant: proposal approval and per-file review are provisional.
+   Disk writes happen only through two explicit confirm actions — the
+   opt-in branch creation and the apply-confirm gate. The reducer itself is
+   pure; the hook performs I/O behind those actions.
 
    `viewingVersion` overlays any proposal-bearing stage: non-null
    means the rail is pinned to a past version (read-only).
    ============================================================ */
 
-import type { DirListing, GitStatus, VerifyReport } from '../host/types';
+import type { ApplyResult, DirListing, FileEdit, GitStatus, VerifyReport } from '../host/types';
 import type { ProjectAnalysis } from '../project/analyze';
 import type { Workstream } from '../project/decompose';
 import type { DesignProposal } from '../project/proposal';
@@ -61,6 +66,8 @@ export type Stage =
   | 'final-approve'
   | 'implementing'
   | 'review'
+  | 'apply-confirm'
+  | 'applying'
   | 'qa'
   | 'complete';
 
@@ -81,6 +88,8 @@ export interface BranchChoice {
 /** The generated dry-run plan the review stage renders. */
 export interface ImplementationPlanState {
   diffs: FileDiff[];
+  /** Complete preimage/replacement payloads for changed files. */
+  edits: FileEdit[];
   skipped: { path: string; reason: string }[];
   totals: { files: number; adds: number; dels: number };
   generatedAt: number;
@@ -112,6 +121,10 @@ export interface WsState {
   plan?: ImplementationPlanState;
   /** Per-file review decisions, keyed by path (UI-only, no writes). */
   reviewDecisions: Record<string, 'accept' | 'skip'>;
+  /** Frozen accepted edits while awaiting/after an explicit apply. */
+  pendingEdits?: FileEdit[];
+  /** The host's outcome for the last apply, if one ran. */
+  applyResult?: ApplyResult;
   /** Stage 9 — the QA report from the host. */
   qa?: VerifyReport;
   error?: string;
@@ -160,7 +173,12 @@ export type WsAction =
   | { type: 'IMPLEMENT_FAIL'; error: string }
   | { type: 'SET_REVIEW_DECISION'; path: string; decision: 'accept' | 'skip' }
   | { type: 'SET_REVIEW_DECISIONS'; decisions: Record<string, 'accept' | 'skip'> }
-  | { type: 'APPROVE_FINAL' }
+  | { type: 'OPEN_APPLY_CONFIRM' }
+  | { type: 'BACK_TO_REVIEW_FROM_APPLY' }
+  | { type: 'BEGIN_APPLY' }
+  | { type: 'APPLY_FAILED'; result: ApplyResult; error?: string }
+  | { type: 'APPLY_SUCCEEDED'; result: ApplyResult }
+  | { type: 'SKIP_APPLY' }
   | { type: 'QA_REPORT'; report: VerifyReport }
   | { type: 'QA_FAIL'; error: string }
   | { type: 'BACK_TO_REVIEW' }
@@ -304,6 +322,8 @@ export function workspaceReducer(state: WsState, action: WsAction): WsState {
         plan: undefined,
         qa: undefined,
         reviewDecisions: {},
+        pendingEdits: undefined,
+        applyResult: undefined,
       };
 
     /* --- stage 7: final approval → implement ------------------- */
@@ -349,14 +369,77 @@ export function workspaceReducer(state: WsState, action: WsAction): WsState {
       if (state.stage !== 'review') return state;
       return { ...state, reviewDecisions: { ...action.decisions } };
 
-    case 'APPROVE_FINAL':
-      // The last gate before QA. Requires a generated plan to exist.
+    case 'OPEN_APPLY_CONFIRM': {
+      // Freeze the accepted set here. Later review edits cannot silently
+      // change what the user is about to authorize writing.
       if (state.stage !== 'review' || !state.plan) return state;
-      return { ...state, stage: 'qa', qa: undefined, error: undefined };
+      const accepted = new Set(acceptedDiffs(state).map((d) => d.path));
+      const pendingEdits = state.plan.edits.filter((e) => accepted.has(e.path));
+      return { ...state, stage: 'apply-confirm', pendingEdits, applyResult: undefined };
+    }
+
+    case 'BACK_TO_REVIEW_FROM_APPLY':
+      if (state.stage !== 'apply-confirm') return state;
+      // Un-freeze: the user must review again before a later confirmation.
+      return { ...state, stage: 'review', pendingEdits: undefined, applyResult: undefined };
+
+    case 'BEGIN_APPLY':
+      if (state.stage !== 'apply-confirm') return state;
+      if (!state.pendingEdits?.length) return state;
+      return { ...state, stage: 'applying', applyResult: undefined, error: undefined };
+
+    case 'APPLY_SUCCEEDED':
+      // Only a real or simulated success proceeds to QA. The copy in QA must
+      // distinguish a simulated write from changes actually on disk.
+      if (state.stage !== 'applying') return state;
+      if (action.result.status !== 'applied' && action.result.status !== 'simulated') {
+        return state;
+      }
+      return {
+        ...state,
+        stage: 'qa',
+        applyResult: action.result,
+        qa: undefined,
+        error: undefined,
+      };
+
+    case 'APPLY_FAILED':
+      // Conflict, failure, or partial application: stay at the confirmation
+      // gate with the frozen paths and the host's exact outcome. Never run QA
+      // as if the whole batch landed.
+      if (state.stage !== 'applying') return state;
+      return {
+        ...state,
+        stage: 'apply-confirm',
+        applyResult: action.result,
+        error: action.error,
+      };
+
+    case 'SKIP_APPLY':
+      // Verify without writing — the only route to QA when nothing is
+      // accepted, and an explicit escape hatch at the confirmation gate.
+      if (state.stage !== 'review' && state.stage !== 'apply-confirm') return state;
+      return {
+        ...state,
+        stage: 'qa',
+        pendingEdits: undefined,
+        applyResult: undefined,
+        qa: undefined,
+        error: undefined,
+      };
 
     case 'BACK_TO_REVIEW':
       if (state.stage !== 'qa') return state;
-      return { ...state, stage: 'review', qa: undefined };
+      // The proposal is stale after an apply; require a fresh review before
+      // any further write. Clear the old result so it can't be mistaken for
+      // an outcome of the next attempt.
+      return {
+        ...state,
+        stage: 'review',
+        qa: undefined,
+        pendingEdits: undefined,
+        applyResult: undefined,
+      };
 
     /* --- stage 9: QA ------------------------------------------- */
     case 'QA_REPORT':
@@ -387,6 +470,8 @@ export function workspaceReducer(state: WsState, action: WsAction): WsState {
         plan: undefined,
         qa: undefined,
         reviewDecisions: {},
+        pendingEdits: undefined,
+        applyResult: undefined,
         error: undefined,
       };
 
@@ -438,6 +523,7 @@ export function isBusy(state: WsState): boolean {
     state.stage === 'analyzing' ||
     state.stage === 'decomposing' ||
     state.stage === 'implementing' ||
+    state.stage === 'applying' ||
     state.stage === 'qa'
   );
 }
@@ -484,6 +570,11 @@ export function acceptedDiffs(state: WsState): FileDiff[] {
   return state.plan.diffs.filter(
     (d) => d.status !== 'unchanged' && state.reviewDecisions[d.path] === 'accept',
   );
+}
+
+/** True once the host reported the frozen batch fully (or partly) written. */
+export function hasDiskWrites(result: ApplyResult | undefined): boolean {
+  return Boolean(result && result.status !== 'simulated' && result.applied.length);
 }
 
 /**

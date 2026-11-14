@@ -172,7 +172,7 @@ export function StageBranchPrep({
         {!isRepo && (
           <p className="branch-note branch-note--warn">
             This folder isn’t a git repository, so there’s no branch to create. You
-            can still continue — the plan is a dry-run and writes nothing.
+            can still continue — nothing is written until you confirm the apply.
           </p>
         )}
 

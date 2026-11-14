@@ -37,7 +37,8 @@ export function StageApproved({
           <ul className="approved__steps">
             <li>Branch preparation — opt-in, editable name, dirty-tree warning, never auto-stash.</li>
             <li>Final approval gate — the last screen before any file work.</li>
-            <li>Implementation — a reviewable dry-run diff, nothing applied.</li>
+            <li>Implementation — a reviewable diff, one accept/skip decision per file.</li>
+            <li>Apply gate — the single place accepted files are written, and only on confirm.</li>
             <li>QA / verification — the project’s own typecheck, lint and tests.</li>
           </ul>
         </div>

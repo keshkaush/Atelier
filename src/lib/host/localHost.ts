@@ -13,9 +13,11 @@
    ============================================================ */
 
 import type {
+  ApplyResult,
   BranchResult,
   DirListing,
   FileContent,
+  FileEdit,
   GitStatus,
   HostBridge,
   RootCandidate,
@@ -83,6 +85,13 @@ export const localHost: HostBridge = {
     return getJson<VerifyReport>('/api/verify', {
       method: 'POST',
       body: JSON.stringify({ root }),
+    });
+  },
+
+  applyEdits(root: string, edits: FileEdit[]): Promise<ApplyResult> {
+    return getJson<ApplyResult>('/api/apply', {
+      method: 'POST',
+      body: JSON.stringify({ root, edits }),
     });
   },
 };

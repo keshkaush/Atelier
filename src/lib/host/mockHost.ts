@@ -10,9 +10,11 @@
    ============================================================ */
 
 import type {
+  ApplyResult,
   BranchResult,
   DirListing,
   FileContent,
+  FileEdit,
   GitStatus,
   HostBridge,
   RootCandidate,
@@ -75,6 +77,18 @@ export const mockHost: HostBridge = {
     const base = filePath.split('/').pop() ?? filePath;
     const stub = `/* ${base} — mock contents of ${resolve(root).listing.root}/${filePath} (no real file read) */\n`;
     return { path: filePath, exists: true, content: stub, size: stub.length };
+  },
+
+  async applyEdits(_root: string, edits: FileEdit[]): Promise<ApplyResult> {
+    await delay(300);
+    // The mock never writes. Say so plainly — the UI must not present this
+    // as a real application of changes.
+    return {
+      status: 'simulated',
+      applied: [],
+      issues: [],
+      note: `Dry run — the mock host did not write ${edits.length} file${edits.length === 1 ? '' : 's'}. Start the local sidecar to apply changes to disk.`,
+    };
   },
 
   async verify(root: string): Promise<VerifyReport> {

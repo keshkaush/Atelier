@@ -18,6 +18,7 @@ import {
   canAdvanceBranchPrep,
   isValidBranchName,
   acceptedDiffs,
+  hasDiskWrites,
   qaVerdict,
 } from './machine.js';
 
@@ -60,6 +61,11 @@ const plan = {
     { path: 'src/App.tsx', status: 'modified', hunks: [], adds: 2, dels: 0 },
     { path: 'src/index.css', status: 'modified', hunks: [], adds: 1, dels: 1 },
     { path: 'src/unchanged.ts', status: 'unchanged', hunks: [], adds: 0, dels: 0 },
+  ],
+  // Complete write payloads for the changed files; never derived from hunks.
+  edits: [
+    { path: 'src/App.tsx', original: 'old app\n', content: 'new app\n' },
+    { path: 'src/index.css', original: 'old css\n', content: 'new css\n' },
   ],
   skipped: [],
   totals: { files: 2, adds: 3, dels: 1 },
@@ -278,47 +284,188 @@ test('IMPLEMENT_FAIL returns to the final-approve gate with an error', () => {
 });
 
 /* ---------------------------------------------------------- */
+/* stage 8b — write-on-confirm                                 */
+/* ---------------------------------------------------------- */
+
+const applied = (paths) => ({
+  status: 'applied',
+  applied: paths,
+  issues: [],
+  note: `Wrote ${paths.length} files.`,
+});
+
+/** Review → frozen confirmation gate (the default: everything accepted). */
+function toApplyConfirm() {
+  return run(toReview(), { type: 'OPEN_APPLY_CONFIRM' });
+}
+
+test('OPEN_APPLY_CONFIRM requires review + a plan', () => {
+  let s = toApproved();
+  s = run(s, { type: 'OPEN_APPLY_CONFIRM' });
+  assert.equal(s.stage, 'approved', 'ignored before review');
+
+  s = toApplyConfirm();
+  assert.equal(s.stage, 'apply-confirm');
+});
+
+test('OPEN_APPLY_CONFIRM freezes only the accepted edits', () => {
+  let s = run(toReview(), { type: 'SET_REVIEW_DECISION', path: 'src/index.css', decision: 'skip' });
+  s = run(s, { type: 'OPEN_APPLY_CONFIRM' });
+  assert.deepEqual(s.pendingEdits.map((e) => e.path), ['src/App.tsx']);
+
+  // Review decisions can no longer change what the frozen batch contains.
+  s = run(s, { type: 'SET_REVIEW_DECISION', path: 'src/index.css', decision: 'accept' });
+  assert.deepEqual(s.pendingEdits.map((e) => e.path), ['src/App.tsx']);
+  assert.equal(s.pendingEdits[0].original, 'old app\n');
+  assert.equal(s.pendingEdits[0].content, 'new app\n');
+});
+
+test('OPEN_APPLY_CONFIRM with nothing accepted freezes an empty batch', () => {
+  const s = run(toReview(), { type: 'SET_REVIEW_DECISIONS', decisions: {} }, { type: 'OPEN_APPLY_CONFIRM' });
+  assert.equal(s.stage, 'apply-confirm');
+  assert.deepEqual(s.pendingEdits, []);
+});
+
+test('BACK_TO_REVIEW_FROM_APPLY unfreezes the batch', () => {
+  let s = toApplyConfirm();
+  s = run(s, { type: 'BACK_TO_REVIEW_FROM_APPLY' });
+  assert.equal(s.stage, 'review');
+  assert.equal(s.pendingEdits, undefined, 'unfrozen');
+  assert.equal(s.applyResult, undefined);
+});
+
+test('BEGIN_APPLY needs the gate and a non-empty batch', () => {
+  let s = toReview();
+  s = run(s, { type: 'BEGIN_APPLY' });
+  assert.equal(s.stage, 'review', 'not at the gate → ignored');
+
+  s = run(s, { type: 'SET_REVIEW_DECISIONS', decisions: {} }, { type: 'OPEN_APPLY_CONFIRM' });
+  s = run(s, { type: 'BEGIN_APPLY' });
+  assert.equal(s.stage, 'apply-confirm', 'empty batch → ignored');
+
+  s = run(toApplyConfirm(), { type: 'BEGIN_APPLY' });
+  assert.equal(s.stage, 'applying');
+  assert.equal(isBusy(s), true, 'applying is busy');
+});
+
+test('APPLY_SUCCEEDED moves applying → qa and records the result', () => {
+  let s = run(toApplyConfirm(), { type: 'BEGIN_APPLY' });
+  const result = applied(['src/App.tsx', 'src/index.css']);
+  s = run(s, { type: 'APPLY_SUCCEEDED', result });
+  assert.equal(s.stage, 'qa');
+  assert.deepEqual(s.applyResult, result);
+  assert.equal(hasDiskWrites(s.applyResult), true);
+});
+
+test('APPLY_SUCCEEDED ignores a non-success result (never QA on a failure)', () => {
+  let s = run(toApplyConfirm(), { type: 'BEGIN_APPLY' });
+  const partial = { status: 'partial', applied: ['src/App.tsx'], issues: [{ path: 'src/index.css', reason: 'x' }] };
+  s = run(s, { type: 'APPLY_SUCCEEDED', result: partial });
+  assert.equal(s.stage, 'applying', 'stays; the failure path handles this');
+  assert.equal(s.applyResult, undefined);
+});
+
+test('APPLY_SUCCEEDED accepts a simulated write but hasDiskWrites is false', () => {
+  let s = run(toApplyConfirm(), { type: 'BEGIN_APPLY' });
+  const sim = { status: 'simulated', applied: [], issues: [], note: 'dry run' };
+  s = run(s, { type: 'APPLY_SUCCEEDED', result: sim });
+  assert.equal(s.stage, 'qa');
+  assert.equal(hasDiskWrites(s.applyResult), false);
+});
+
+test('APPLY_FAILED returns to the gate with the exact outcome, never to QA', () => {
+  let s = run(toApplyConfirm(), { type: 'BEGIN_APPLY' });
+  const conflict = {
+    status: 'conflict',
+    applied: [],
+    issues: [{ path: 'src/App.tsx', reason: 'The file changed on disk.' }],
+    note: 'Nothing was written.',
+  };
+  s = run(s, { type: 'APPLY_FAILED', result: conflict });
+  assert.equal(s.stage, 'apply-confirm');
+  assert.equal(s.error, undefined);
+  assert.deepEqual(s.applyResult, conflict);
+  // The frozen batch is still there so the user can re-review or go back.
+  assert.equal(s.pendingEdits.length, 2);
+  assert.equal(hasDiskWrites(s.applyResult), false);
+});
+
+test('APPLY_FAILED carries a transport error alongside the result', () => {
+  let s = run(toApplyConfirm(), { type: 'BEGIN_APPLY' });
+  s = run(s, {
+    type: 'APPLY_FAILED',
+    result: { status: 'failed', applied: [], issues: [] },
+    error: 'sidecar unreachable',
+  });
+  assert.equal(s.stage, 'apply-confirm');
+  assert.equal(s.error, 'sidecar unreachable');
+});
+
+test('SKIP_APPLY goes to QA from review or the gate without a result', () => {
+  let s = run(toReview(), { type: 'SKIP_APPLY' });
+  assert.equal(s.stage, 'qa');
+  assert.equal(s.applyResult, undefined);
+
+  s = run(toApplyConfirm(), { type: 'SKIP_APPLY' });
+  assert.equal(s.stage, 'qa');
+  assert.equal(s.pendingEdits, undefined, 'nothing kept that could be applied later');
+
+  // Not valid from anywhere else.
+  s = run(toApproved(), { type: 'SKIP_APPLY' });
+  assert.equal(s.stage, 'approved');
+});
+
+test('hasDiskWrites survives a partial batch and clears on back', () => {
+  let s = run(toApplyConfirm(), { type: 'BEGIN_APPLY' });
+  const partial = { status: 'partial', applied: ['src/App.tsx'], issues: [{ path: 'src/index.css', reason: 'x' }] };
+  s = run(s, { type: 'APPLY_FAILED', result: partial });
+  assert.equal(hasDiskWrites(s.applyResult), true, 'partial really wrote a file');
+  s = run(s, { type: 'BACK_TO_REVIEW' }); // no-op at the gate
+  assert.equal(s.stage, 'apply-confirm');
+  s = run(s, { type: 'BACK_TO_REVIEW_FROM_APPLY' });
+  assert.equal(s.applyResult, undefined, 'stale outcome cleared');
+});
+
+/* ---------------------------------------------------------- */
 /* stage 9 — QA                                                */
 /* ---------------------------------------------------------- */
 
-test('APPROVE_FINAL requires a plan; moves review → qa', () => {
-  let s = toApproved();
-  s = run(s, { type: 'OPEN_BRANCH_PREP' }, { type: 'BRANCH_PREP_OK', choice: { mode: 'skip' } });
-  s = run(s, { type: 'BEGIN_IMPLEMENT', finalApprovedAt: 1 });
-  // No plan yet — approving final is ignored.
-  s = run(s, { type: 'APPROVE_FINAL' });
-  assert.equal(s.stage, 'implementing', 'no plan → ignored');
-
-  s = run(s, { type: 'IMPLEMENT_OK', plan }, { type: 'APPROVE_FINAL' });
-  assert.equal(s.stage, 'qa');
-  assert.equal(isBusy(s), true, 'qa is busy');
-});
-
 test('QA_REPORT completes; verdict derives from steps', () => {
-  let s = toReview();
-  s = run(s, { type: 'APPROVE_FINAL' }, { type: 'QA_REPORT', report });
+  let s = run(toReview(), { type: 'SKIP_APPLY' }, { type: 'QA_REPORT', report });
   assert.equal(s.stage, 'complete');
   assert.equal(qaVerdict(s), 'pass');
 
-  let s2 = toReview();
   const failing = { ...report, steps: { ...report.steps, test: { status: 'fail' } } };
-  s2 = run(s2, { type: 'APPROVE_FINAL' }, { type: 'QA_REPORT', report: failing });
+  const s2 = run(toReview(), { type: 'SKIP_APPLY' }, { type: 'QA_REPORT', report: failing });
   assert.equal(qaVerdict(s2), 'fail');
 
-  let s3 = toReview();
   const unavailable = {
     ...report,
     steps: { typecheck: { status: 'unavailable' }, lint: { status: 'skipped' }, test: { status: 'skipped' } },
   };
-  s3 = run(s3, { type: 'APPROVE_FINAL' }, { type: 'QA_REPORT', report: unavailable });
+  const s3 = run(toReview(), { type: 'SKIP_APPLY' }, { type: 'QA_REPORT', report: unavailable });
   assert.equal(qaVerdict(s3), 'unavailable');
 });
 
+test('QA_REPORT is ignored outside the qa stage', () => {
+  const s = run(toReview(), { type: 'QA_REPORT', report });
+  assert.equal(s.stage, 'review');
+});
+
 test('QA_FAIL returns to review with an error', () => {
-  let s = toReview();
-  s = run(s, { type: 'APPROVE_FINAL' }, { type: 'QA_FAIL', error: 'verify crashed' });
+  let s = run(toReview(), { type: 'SKIP_APPLY' });
+  s = run(s, { type: 'QA_FAIL', error: 'verify crashed' });
   assert.equal(s.stage, 'review');
   assert.equal(s.error, 'verify crashed');
+});
+
+test('BACK_TO_REVIEW from QA clears the apply outcome', () => {
+  let s = run(toApplyConfirm(), { type: 'BEGIN_APPLY' });
+  s = run(s, { type: 'APPLY_SUCCEEDED', result: applied(['src/App.tsx', 'src/index.css']) });
+  s = run(s, { type: 'BACK_TO_REVIEW' });
+  assert.equal(s.stage, 'review');
+  assert.equal(s.applyResult, undefined);
+  assert.equal(s.pendingEdits, undefined);
 });
 
 /* ---------------------------------------------------------- */

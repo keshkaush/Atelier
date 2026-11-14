@@ -88,14 +88,40 @@ export interface RootCandidate {
   name: string;
 }
 
+/** A complete proposed write: the exact preimage it was based on, plus the replacement. */
+export interface FileEdit {
+  /** Project-relative, POSIX separators. */
+  path: string;
+  /** Exact current UTF-8 text, or null when the file must still be absent. */
+  original: string | null;
+  /** Full replacement text (not a patch). */
+  content: string;
+}
+
+export type ApplyStatus = 'applied' | 'simulated' | 'conflict' | 'failed' | 'partial';
+
+export interface ApplyIssue {
+  path: string;
+  reason: string;
+}
+
+/** Outcome of one explicit apply request. `applied` lists real written paths. */
+export interface ApplyResult {
+  status: ApplyStatus;
+  applied: string[];
+  issues: ApplyIssue[];
+  /** Human explanation, e.g. mock simulation or partial-write warning. */
+  note?: string;
+}
+
 /**
  * The single surface the workspace UI talks to.
  *
  * Milestone 1 shipped MockHost only. Milestone 2 adds LocalHost (a Node
  * sidecar behind `/api`). Both implement the same surface, so analysis,
- * diff-shaping and QA run unchanged against either. `createBranch`
- * mutates disk — it is ONLY called after the user's explicit confirm in
- * the branch-prep stage; nothing else here writes.
+ * diff-shaping and QA run unchanged against either. `createBranch` and
+ * `applyEdits` mutate disk — each is ONLY called after the user's explicit
+ * confirm in its own stage. Everything else here is read-only.
  */
 export interface HostBridge {
   readonly kind: 'mock' | 'local';
@@ -112,4 +138,10 @@ export interface HostBridge {
   readFile(root: string, path: string): Promise<FileContent>;
   /** Run the target project's typecheck/lint/test. Never writes. */
   verify(root: string): Promise<VerifyReport>;
+  /**
+   * Write exactly these complete files after an explicit user confirmation.
+   * The host must verify every `original` preimage (or absence) before
+   * mutating, and report conflicts/partial writes honestly. Mock simulates.
+   */
+  applyEdits(root: string, edits: FileEdit[]): Promise<ApplyResult>;
 }

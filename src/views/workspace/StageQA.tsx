@@ -1,6 +1,6 @@
 import type { AttachedProject, QaVerdict } from '../../lib/workspace/useWorkspace';
 import type { ImplementationPlanState } from '../../lib/workspace/useWorkspace';
-import type { VerifyReport, VerifyStep, StepStatus } from '../../lib/host/types';
+import type { ApplyResult, VerifyReport, VerifyStep, StepStatus } from '../../lib/host/types';
 import type { DesignProposal } from '../../lib/project/proposal';
 import { IconCheck, IconClose, IconRestart, IconSpark } from '../../components/Icons';
 
@@ -70,6 +70,8 @@ export function StageQA({
   proposal,
   attached,
   acceptedCount,
+  applyResult,
+  hasDiskWrites,
   onBack,
   onReset,
 }: {
@@ -80,12 +82,27 @@ export function StageQA({
   proposal?: DesignProposal;
   attached?: AttachedProject;
   acceptedCount: number;
+  /** The host's apply outcome for this run, if one was attempted. */
+  applyResult?: ApplyResult;
+  /** True only when files really landed on disk. */
+  hasDiskWrites: boolean;
   onBack: () => void;
   onReset: () => void;
 }) {
   const running = stage === 'qa' || !qa;
   const copy = VERDICT_COPY[verdict];
   const stamp = qa ? new Date(qa.ranAt).toLocaleString() : '';
+  const written = applyResult?.applied ?? [];
+  const simulated = applyResult?.status === 'simulated';
+
+  // The QA stage must never imply writes that didn't happen, nor hide ones
+  // that did. Three truthful states: applied, simulated, or nothing.
+  const writesLabel = hasDiskWrites
+    ? `${written.length} file${written.length === 1 ? '' : 's'} written`
+    : simulated
+      ? 'None — simulated'
+      : 'None — not applied';
+  const writesClass = hasDiskWrites ? 'qa-summary__v--written' : 'qa-summary__v--safe';
 
   if (running) {
     return (
@@ -116,8 +133,11 @@ export function StageQA({
           The run is <em>complete</em>.
         </h2>
         <p className="stage__lede">
-          The plan was approved, drafted as a reviewable dry-run diff, and checked
-          against the project’s own tooling. Nothing was written to your files.
+          {hasDiskWrites
+            ? `The accepted changes were written to ${written.length} file${written.length === 1 ? '' : 's'}, then checked against the project’s own tooling.`
+            : simulated
+              ? 'The mock host simulated the write without touching disk, then verification ran against the project as it stands.'
+              : 'The plan was reviewed without applying it, and verification ran against the project as it stands. Nothing was written to your files.'}
         </p>
       </div>
 
@@ -154,7 +174,7 @@ export function StageQA({
               <span className="qa-summary__v">v{proposal?.version ?? '—'}</span>
             </div>
             <div className="qa-summary__row">
-              <span className="qa-summary__k">Files in plan</span>
+              <span className="qa-summary__k">Files accepted</span>
               <span className="qa-summary__v">{acceptedCount}</span>
             </div>
             <div className="qa-summary__row">
@@ -165,7 +185,7 @@ export function StageQA({
             </div>
             <div className="qa-summary__row">
               <span className="qa-summary__k">Writes</span>
-              <span className="qa-summary__v qa-summary__v--safe">None — dry run</span>
+              <span className={`qa-summary__v ${writesClass}`}>{writesLabel}</span>
             </div>
             <div className="qa-summary__row">
               <span className="qa-summary__k">Verified</span>
@@ -175,11 +195,14 @@ export function StageQA({
         </div>
       </div>
 
-      <div className="qa-reassure">
-        <IconCheck size={14} />
+      <div className={`qa-reassure${hasDiskWrites ? ' qa-reassure--written' : ''}`}>
+        {hasDiskWrites ? <IconCheck size={14} /> : <IconClose size={14} />}
         <span>
-          Application is yours: copy a diff into your editor when you’re ready.
-          Write-on-confirm is a later milestone — this run changed nothing.
+          {hasDiskWrites
+            ? `Written by your explicit confirmation: ${written.join(', ')}. Nothing was committed or staged — review the changes in git before continuing.`
+            : simulated
+              ? 'The mock host never writes. Start the local sidecar (VITE_HOST=local) to apply changes to disk for real.'
+              : 'Nothing was written this run. Return to review if you want to accept files and apply them.'}
         </span>
       </div>
 

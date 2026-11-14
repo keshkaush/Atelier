@@ -114,7 +114,7 @@ To make the desks generate real output, call `complete()` in `src/lib/model.ts` 
 
 ## Project workspace
 
-The project-aware flow runs a nine-step journey. The first half is analysis-first and writes nothing; the second half is a reviewable dry run that still writes nothing:
+The project-aware flow runs a nine-step journey. The first half is analysis-first and writes nothing; the second half produces a reviewable diff that is written only when you explicitly confirm it:
 
 1. **Brief + attach** — describe the change and attach a project directory. In demo mode you pick a canned sample; in local mode (`VITE_HOST=local`) the sidecar offers the folders it was started with (`ATELIER_ROOTS`), or you type an absolute path — which the host only accepts if it's inside that allowlist. No arbitrary filesystem browsing.
 2. **Analyse** — structural detection of framework, styling, components, tokens and themes, each claim backed by the files that prove it. Dependencies, build output, lockfiles, secrets and binaries are never crawled (the ignored tally is shown explicitly).
@@ -123,14 +123,16 @@ The project-aware flow runs a nine-step journey. The first half is analysis-firs
 5. **Decide** — approve, revise (new version), choose an alternative (new version), or cancel.
 6. **Branch prep** — opt-in, off by default. An editable branch name (pre-filled from a slug of the brief, validated live), a dirty-tree warning that requires acknowledgement, and the current branch / ahead-behind. Copy states plainly that **Atelier never stashes your changes**.
 7. **Final approval** — the last gate before any file work: proposal version, branch (or none), impact counts, and an explicit "begin implementation".
-8. **Implementation (dry run)** — a deterministic, reviewable per-file diff shaped from the plan and your project's real files. Accept or skip each file (plan membership only). **Nothing is applied** — you take the diff into your editor.
-9. **QA / verification** — runs the target project's own typecheck (`tsc -b` / a `typecheck` script), plus lint and tests if declared. Degrades gracefully when a check can't run on the host platform. Reports a verdict, per-step results, and a change summary, with timestamp.
+8. **Implementation + apply gate** — a deterministic, reviewable per-file diff shaped from the plan and your project's real files. Accept or skip each file; that decision is **provisional**. A separate confirmation screen freezes exactly the accepted files and lists what will be created vs. overwritten. Only pressing **Write to disk** there sends anything to the host. Every file is re-checked against the exact contents the proposal was generated from — if anything changed on disk in the meantime, **nothing is written** and the conflicting paths are listed. Return to review and the frozen batch is discarded.
+9. **QA / verification** — runs the target project's own typecheck (`tsc -b` / a `typecheck` script), plus lint and tests if declared. Degrades gracefully when a check can't run on the host platform. Reports a verdict, per-step results, and a change summary that always states truthfully what was written (real write / simulated / nothing), with timestamp.
 
-The only filesystem mutation anywhere is the opt-in `git checkout -b` from step 6. Nothing else — not the diff, not QA — writes.
+Two routes mutate anything, and both are opt-in: the `git checkout -b` from step 6, and the apply confirmed at step 8. The write path never commits, stages, or stashes — after a successful apply, review the changes in git yourself.
 
-**Host seam.** A browser can't read a folder or run `git`, so all filesystem/git access goes through one interface — `HostBridge` in `src/lib/host/` (`listProject`, `gitStatus`, `createBranch`, `readFile`, `verify`). Two implementations: `MockHost` (canned sample projects, offline) and `LocalHost` (the `server/` Node sidecar behind `/api`). Because the analysis engine consumes only a `DirListing` and the diff shaper only a file's text, the same frontend runs unchanged against either — pick with `VITE_HOST`.
+**Apply safety.** `POST /api/apply` accepts at most 8 edits of 400 KB each. Paths must be plain, project-relative and POSIX-separated — no absolute/drive/UNC paths, backslashes, dot segments, NUL, colons, `.git` components, Windows reserved names, or names ending in a dot/space — and must resolve inside the allowlisted root through real directories (symlinks, junctions and non-regular files are refused). The whole batch is validated and preflighted before a single byte moves; each file is then staged to an exclusive temp file beside its target, re-verified, and published by rename (replace) or exclusive create (a file that appeared mid-batch is never clobbered). This is deliberately **not** atomic across files: a failure mid-batch is reported as `partial` with the exact paths written, and nothing is rolled back (rewriting a file could destroy a concurrent edit). Conflicts before any write leave the tree untouched.
 
-**Wiring a real model.** `src/lib/project/decompose.ts` and `proposal.ts` are deterministic by default (offline, instant), as is the dry-run generator `implement.ts`. To generate any of them with a model instead, call `complete()` from `src/lib/model.ts` with the relevant mandate as the system prompt and the brief + analysis as the user message, and parse its JSON into `Workstream[]` / `DesignProposal` / a set of edits. The seam is already shaped for it — the rest of the pipeline (diff rendering, review, QA) is unchanged.
+**Host seam.** A browser can't read a folder or run `git`, so all filesystem/git access goes through one interface — `HostBridge` in `src/lib/host/` (`listProject`, `gitStatus`, `createBranch`, `readFile`, `verify`, `applyEdits`). Two implementations: `MockHost` (canned sample projects, offline — it reports applies as *simulated* and never touches disk) and `LocalHost` (the `server/` Node sidecar behind `/api`). Because the analysis engine consumes only a `DirListing` and the diff shaper only a file's text, the same frontend runs unchanged against either — pick with `VITE_HOST`.
+
+**Wiring a real model.** `src/lib/project/decompose.ts` and `proposal.ts` are deterministic by default (offline, instant), as is the generator `implement.ts`. To generate any of them with a model instead, call `complete()` from `src/lib/model.ts` with the relevant mandate as the system prompt and the brief + analysis as the user message, and parse its JSON into `Workstream[]` / `DesignProposal` / a set of `FileEdit`s (complete `content` plus the exact `original`, or `null` for a new file). The seam is already shaped for it — the rest of the pipeline (diff rendering, review, apply, QA) is unchanged, and hunks are only ever displayed, never used to reconstruct a file.
 
 ## Structure
 
@@ -140,7 +142,7 @@ src/
   views/RunConsole.tsx        brief console: brief, board, activity log
   views/WorkspaceView.tsx     project workspace: stage router + stepper
   views/workspace/*           StageInput, Analyze, Decompose, Proposal, Approved,
-                              BranchPrep, FinalApprove, Review (+DiffView), QA
+                              BranchPrep, FinalApprove, Review (+DiffView), Apply, QA
   views/FloorModal.tsx        the floor pop-up
   components/OrgChart.tsx     org chart
   components/FileTree.tsx     project file tree (dimmed ignores)
@@ -153,9 +155,9 @@ src/
   lib/workspace/              machine.ts (pure reducer) + useWorkspace.ts + tests
   index.css                   design system
 server/                       zero-dep Node sidecar (the real local host)
-  index.mjs                   HTTP server: /api/health, roots, list, git-status, branch, read, verify
-  lib/                        allowlist, walk, git, branch, verify
-  test/                       host tests (throwaway /tmp git repos)
+  index.mjs                   HTTP server: /api/health, roots, list, git-status, branch, read, verify, apply
+  lib/                        allowlist, walk, git, branch, apply (write-on-confirm), verify
+  test/                       host tests (throwaway /tmp git repos + a real HTTP sidecar)
 scripts/test-machine.mjs      compile + run the reducer suite
 ```
 

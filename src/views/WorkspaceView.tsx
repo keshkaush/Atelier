@@ -7,6 +7,7 @@ import { StageApproved } from './workspace/StageApproved';
 import { StageBranchPrep } from './workspace/StageBranchPrep';
 import { StageFinalApprove } from './workspace/StageFinalApprove';
 import { StageReview } from './workspace/StageReview';
+import { StageApply } from './workspace/StageApply';
 import { StageQA } from './workspace/StageQA';
 
 const STEPS = [
@@ -40,6 +41,8 @@ function stepIndex(stage: string): number {
       return 5;
     case 'implementing':
     case 'review':
+    case 'apply-confirm':
+    case 'applying':
       return 6;
     case 'qa':
     case 'complete':
@@ -66,9 +69,9 @@ export function WorkspaceView() {
           <strong>Analysis first</strong>
           nothing written
           <br />
-          until you approve
+          until you confirm
           <br />
-          dry-run diff · qa
+          review · apply · qa
         </div>
       </header>
 
@@ -180,7 +183,7 @@ export function WorkspaceView() {
           </div>
           <div className="qa-running">
             <span className="dot dot--working" />
-            <span>Generating a dry-run diff from the plan…</span>
+            <span>Generating a diff from the plan…</span>
           </div>
         </div>
       ) : null}
@@ -192,9 +195,45 @@ export function WorkspaceView() {
           onDecision={ws.setReviewDecision}
           onAll={ws.setAllReviewDecisions}
           busy={ws.busy}
-          onNext={ws.approveFinal}
+          onNext={ws.openApplyConfirm}
+          onSkip={ws.skipApply}
           onBack={ws.backToBranchPrep}
         />
+      ) : null}
+
+      {ws.stage === 'apply-confirm' && ws.plan ? (
+        <StageApply
+          pendingEdits={ws.pendingEdits ?? []}
+          applyResult={ws.applyResult}
+          hostKind={ws.hostKind}
+          busy={ws.busy}
+          error={ws.error}
+          onConfirm={ws.confirmApply}
+          onSkip={ws.skipApply}
+          onBack={ws.backFromApply}
+        />
+      ) : null}
+
+      {ws.stage === 'applying' ? (
+        <div className="stage stage--applying">
+          <div className="stage__intro">
+            <p className="stage__kicker">Step eight — writing</p>
+            <h2 className="stage__title">
+              Writing the <em>accepted</em> files…
+            </h2>
+            <p className="stage__lede">
+              Each file is being re-checked against the contents the proposal was
+              based on before it is replaced. If anything diverged, nothing is
+              written and you’ll see exactly which file changed.
+            </p>
+          </div>
+          <div className="qa-running">
+            <span className="dot dot--working" />
+            <span>Applying {ws.pendingEdits?.length ?? 0} accepted file
+              {(ws.pendingEdits?.length ?? 0) === 1 ? '' : 's'}…
+            </span>
+          </div>
+        </div>
       ) : null}
 
       {(ws.stage === 'qa' || ws.stage === 'complete') ? (
@@ -206,6 +245,8 @@ export function WorkspaceView() {
           proposal={ws.proposal}
           attached={ws.attached}
           acceptedCount={ws.acceptedFiles.length}
+          applyResult={ws.applyResult}
+          hasDiskWrites={ws.hasDiskWrites}
           onBack={ws.backToReview}
           onReset={ws.reset}
         />

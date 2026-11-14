@@ -3172,6 +3172,10 @@ a {
 .qa-summary__v--safe {
   color: var(--st-done);
 }
+.qa-summary__v--written {
+  color: var(--ink);
+  font-weight: 600;
+}
 
 .qa-reassure {
   display: flex;
@@ -3190,6 +3194,127 @@ a {
   color: var(--st-done);
   flex: none;
   margin-top: 0.1rem;
+}
+.qa-reassure--written {
+  border-color: var(--ink);
+}
+.qa-reassure--written svg {
+  color: var(--ink);
+}
+
+/* --- stage 8b: apply confirmation --------------------------- */
+.apply-batch {
+  margin-top: 1.4rem;
+  border: 1px solid var(--ink);
+  max-width: 52rem;
+}
+.apply-batch__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-2);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+}
+.apply-batch__counts {
+  display: inline-flex;
+  gap: 0.9rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.apply-batch__count {
+  color: var(--ink-2);
+}
+.apply-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem 0;
+}
+.apply-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  padding: 0.4rem 1rem;
+  border-bottom: 1px solid var(--rule);
+}
+.apply-item:last-child {
+  border-bottom: 0;
+}
+.apply-item__kind {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  width: 0.7rem;
+  flex: none;
+  color: var(--st-done);
+}
+.apply-item__kind.is-modify {
+  color: var(--st-warn);
+}
+.apply-item__path {
+  font-size: 0.78rem;
+  color: var(--ink);
+  flex: 1;
+  word-break: break-all;
+}
+.apply-item__action {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  flex: none;
+}
+
+.apply-failure {
+  margin-top: 1.4rem;
+  border: 1px solid #e0c4b8;
+  background: #f7ece7;
+  padding: 1rem;
+  max-width: 52rem;
+}
+.apply-failure__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--st-warn);
+  font-size: 0.9rem;
+}
+.apply-failure__note {
+  margin: 0.6rem 0 0;
+  font-size: 0.84rem;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.apply-failure__issues,
+.apply-failure__applied ul {
+  margin: 0.6rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.apply-failure__applied {
+  margin-top: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid #e0c4b8;
+}
+.apply-failure__applied-k {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+}
+.apply-failure__next {
+  margin: 0.8rem 0 0;
+  font-size: 0.8rem;
+  color: var(--ink-2);
 }
 
 /* --- approved card action row ------------------------------- */

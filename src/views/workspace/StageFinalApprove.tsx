@@ -6,7 +6,7 @@ import { IconGitBranch, IconCheck, IconArrow, IconRestart } from '../../componen
  * Stage 7 — the final approval gate. The last screen before any file work.
  * It restates the whole commitment on one page: which proposal version,
  * which branch (or none), what impact. One explicit approve leads to the
- * dry-run implementation. Nothing has been written to reach this point
+ * generated diff for review. Nothing has been written to reach this point
  * except (optionally) the branch the user themselves chose.
  */
 export function StageFinalApprove({
@@ -43,9 +43,9 @@ export function StageFinalApprove({
           The last gate. <em>Then</em> the studio drafts the change.
         </h2>
         <p className="stage__lede">
-          Check the commitment below. Approving moves to a generated,
-          reviewable diff — a dry run. This milestone never writes to your files;
-          applying the diff stays your call, in your editor.
+          Check the commitment below. Approving generates a reviewable diff —
+          still nothing on disk. You accept files one by one, and a separate
+          confirmation screen is the only place anything is written.
         </p>
       </div>
 
@@ -81,8 +81,8 @@ export function StageFinalApprove({
           <div className="final-card__item">
             <span className="final-card__k">Writes</span>
             <span className="final-card__v">
-              None
-              <span className="final-card__sub">dry-run diff only</span>
+              None yet
+              <span className="final-card__sub">only at the confirmation gate</span>
             </span>
           </div>
         </div>
@@ -100,8 +100,9 @@ export function StageFinalApprove({
         <div className="final-card__assurance">
           <IconCheck size={15} />
           <span>
-            Atelier will read these files to draft a diff. It will not write,
-            stage, commit, or stash anything.
+            Atelier reads these files to draft a diff. It writes only the files
+            you accept, only when you confirm on the apply screen — it never
+            commits, stages, or stashes anything.
           </span>
         </div>
       </div>

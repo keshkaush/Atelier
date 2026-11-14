@@ -19,7 +19,7 @@
 
 import type { Workstream } from './decompose';
 import type { DeskId } from '../studio';
-import type { HostBridge } from '../host/types';
+import type { HostBridge, FileEdit } from '../host/types';
 import { diffFiles, diffNewFile, type FileDiff } from './diff';
 
 /** How many files we'll read + diff. Keeps the review stage to a screen. */
@@ -107,6 +107,8 @@ function proposedEditFor(
 
 export interface ImplementationPlan {
   diffs: FileDiff[];
+  /** Complete write payloads for changed files; never derived from hunks. */
+  edits: FileEdit[];
   /** Files we wanted to diff but couldn't read (missing/too big). */
   skipped: { path: string; reason: string }[];
   totals: { files: number; adds: number; dels: number };
@@ -136,6 +138,7 @@ export async function generateImplementation(
   const paths = Array.from(owners.keys()).slice(0, MAX_FILES);
   const skipped: { path: string; reason: string }[] = [];
   const diffs: FileDiff[] = [];
+  const edits: FileEdit[] = [];
 
   for (const path of paths) {
     const desk = owners.get(path)!;
@@ -149,6 +152,7 @@ export async function generateImplementation(
           `${c(`Proposed new file for: ${brief.trim().slice(0, 80) || 'the change'}`)}\n` +
           `${c('Created by Atelier as a dry-run proposal — not written to disk.')}\n`;
         diffs.push(diffNewFile(path, scaffold));
+        edits.push({ path, original: null, content: scaffold });
         continue;
       }
       if (file.truncated) {
@@ -168,6 +172,7 @@ export async function generateImplementation(
     const d = diffFiles(path, content, text);
     d.note = d.status === 'unchanged' ? note : `${desk.toUpperCase()} · ${note}`;
     diffs.push(d);
+    if (d.status === 'modified') edits.push({ path, original: content, content: text });
   }
 
   const totals = {
@@ -176,5 +181,5 @@ export async function generateImplementation(
     dels: diffs.reduce((n, d) => n + d.dels, 0),
   };
 
-  return { diffs, skipped, totals, generatedAt: now.getTime() };
+  return { diffs, edits, skipped, totals, generatedAt: now.getTime() };
 }

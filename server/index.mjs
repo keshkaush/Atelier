@@ -15,6 +15,12 @@
      · shells out to git via execFile with argument ARRAYS, never a shell
      · branch creation checks for a dirty tree and NEVER auto-stashes
 
+   Mutating routes (the only two):
+     POST /api/branch  — create a branch, refusing a dirty tree
+     POST /api/apply   — write explicitly confirmed file edits; complete
+                         preimages re-checked on disk, nothing written on a
+                         preflight conflict, no partial rollback (reported)
+
    Start:
      ATELIER_ROOTS="/abs/path/to/project" node server/index.mjs
    Optional:
@@ -32,12 +38,14 @@ import { loadAllowlist, resolveRoot, safeJoin } from './lib/allowlist.mjs';
 import { walk } from './lib/walk.mjs';
 import { git, isGitRepo, parseStatus } from './lib/git.mjs';
 import { createBranch } from './lib/branch.mjs';
+import { applyEdits } from './lib/apply.mjs';
 import { verify } from './lib/verify.mjs';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.ATELIER_PORT ?? 5179);
 const TOKEN = process.env.ATELIER_TOKEN || randomBytes(24).toString('hex');
 const MAX_BODY = 1 * 1024 * 1024; // 1 MB is plenty for our JSON bodies
+const MAX_APPLY_BODY = 8 * 1024 * 1024; // complete file text for up to 8 edits
 const MAX_FILE_READ = 400 * 1024; // don't ship huge files to the diff view
 
 const allowlist = loadAllowlist(process.env, (m) => console.warn(`[atelier] ${m}`));
@@ -56,29 +64,52 @@ function send(res, status, body) {
   res.end(json);
 }
 
-function readBody(req) {
+function readBody(req, maxBytes = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let settled = false;
     const chunks = [];
-    req.on('data', (c) => {
+
+    function settle(fn, value) {
+      if (settled) return;
+      settled = true;
+      req.removeListener('data', onData);
+      req.removeListener('end', onEnd);
+      req.removeListener('error', onError);
+      fn(value);
+    }
+
+    function onData(c) {
       size += c.length;
-      if (size > MAX_BODY) {
-        reject(new HttpError(413, 'Request body too large.'));
-        req.destroy();
+      if (size > maxBytes) {
+        chunks.length = 0;
+        settle(reject, new HttpError(413, 'Request body too large.'));
+        // Keep draining so the client can actually read the 413 instead of
+        // seeing a reset mid-upload — but never drain an unbounded stream.
+        if (size > maxBytes * 4) req.destroy();
+        else req.resume();
         return;
       }
       chunks.push(c);
-    });
-    req.on('end', () => {
+    }
+
+    function onEnd() {
       const raw = Buffer.concat(chunks).toString('utf8');
-      if (!raw) return resolve({});
+      if (!raw) return settle(resolve, {});
       try {
-        resolve(JSON.parse(raw));
+        settle(resolve, JSON.parse(raw));
       } catch {
-        reject(badRequest('Body must be valid JSON.'));
+        settle(reject, badRequest('Body must be valid JSON.'));
       }
-    });
-    req.on('error', reject);
+    }
+
+    function onError(e) {
+      settle(reject, e);
+    }
+
+    req.on('data', onData);
+    req.on('end', onEnd);
+    req.on('error', onError);
   });
 }
 
@@ -157,6 +188,16 @@ async function handleVerify(req, res) {
   send(res, 200, report);
 }
 
+async function handleApply(req, res) {
+  // The ONLY mutating route besides branch creation. The client sends the
+  // exact accepted files; server/lib/apply.mjs re-validates containment,
+  // preimages and target types, and writes nothing on a preflight conflict.
+  const body = await readBody(req, MAX_APPLY_BODY);
+  const { real } = resolveRoot(body.root, allowlist);
+  const result = await applyEdits(real, body.edits);
+  send(res, 200, result);
+}
+
 const ROUTES = {
   'GET /api/list': handleList,
   'GET /api/roots': handleRoots,
@@ -164,6 +205,7 @@ const ROUTES = {
   'POST /api/branch': handleBranch,
   'POST /api/read': handleRead,
   'POST /api/verify': handleVerify,
+  'POST /api/apply': handleApply,
 };
 
 /* ---------------------------------------------------------- */

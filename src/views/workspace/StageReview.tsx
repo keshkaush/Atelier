@@ -3,10 +3,11 @@ import { DiffView } from './DiffView';
 import { IconCheck, IconClose, IconArrow } from '../../components/Icons';
 
 /**
- * Stage 8 — implementation review. The generated dry-run diffs, one card
- * per file, each with an accept/skip toggle (UI state only). The copy is
- * unambiguous: nothing here is applied. Accepting marks a file as "in" for
- * the plan's summary; it never writes to disk.
+ * Stage 8 — implementation review. The generated diffs, one card per file,
+ * each with an accept/skip toggle. Accepting marks a file as provisionally
+ * "in" — it is a review decision, not a write. The accepted set is frozen
+ * on the next screen, which is where the user explicitly authorizes disk
+ * writes.
  */
 export function StageReview({
   plan,
@@ -15,6 +16,7 @@ export function StageReview({
   onAll,
   busy,
   onNext,
+  onSkip,
   onBack,
 }: {
   plan: ImplementationPlanState;
@@ -23,6 +25,7 @@ export function StageReview({
   onAll: (decision: 'accept' | 'skip') => void;
   busy: boolean;
   onNext: () => void;
+  onSkip: () => void;
   onBack: () => void;
 }) {
   const changed = plan.diffs.filter((d) => d.status !== 'unchanged');
@@ -32,14 +35,15 @@ export function StageReview({
   return (
     <div className="stage stage--review">
       <div className="stage__intro">
-        <p className="stage__kicker">Step eight — implementation (dry run)</p>
+        <p className="stage__kicker">Step eight — implementation review</p>
         <h2 className="stage__title">
-          A reviewable diff. <em>Nothing</em> is applied.
+          A reviewable diff. <em>Nothing</em> is written yet.
         </h2>
         <p className="stage__lede">
           These are proposed changes shaped from the plan and your project’s real
-          files. Accept or skip each file to mark what belongs in the plan. No file
-          is written in this milestone — you apply diffs yourself, in your editor.
+          files. Accept or skip each file. Accepting only marks a file for the next
+          step — the write itself happens on the confirmation screen, and only for
+          the files you accepted there.
         </p>
       </div>
 
@@ -92,7 +96,7 @@ export function StageReview({
         <div className="review-empty">
           <p>
             The plan didn’t resolve to any concrete file changes to review. You can
-            still run QA, or go back to adjust the proposal.
+            still run verification, or go back to adjust the proposal.
           </p>
         </div>
       ) : (
@@ -104,7 +108,7 @@ export function StageReview({
                 <div className="review-card__bar">
                   <span className={`review-card__state ${accepted ? 'is-accepted' : 'is-skipped'}`}>
                     {accepted ? <IconCheck size={13} /> : <IconClose size={13} />}
-                    {accepted ? 'In the plan' : 'Skipped'}
+                    {accepted ? 'Accepted' : 'Skipped'}
                   </span>
                   <div className="review-card__toggle">
                     <button
@@ -145,11 +149,14 @@ export function StageReview({
         </button>
         <div className="stage__actions-right">
           <span className="stage__hint">
-            {accepted.length} of {changed.length} file
-            {changed.length === 1 ? '' : 's'} marked in the plan
+            {accepted.length} of {changed.length} file{changed.length === 1 ? '' : 's'} accepted — not
+            yet written
           </span>
+          <button className="btn btn--ghost" type="button" onClick={onSkip} disabled={busy}>
+            Skip to verification
+          </button>
           <button className="btn btn--solid" type="button" onClick={onNext} disabled={busy}>
-            Run verification <IconArrow size={16} />
+            Review &amp; apply <IconArrow size={16} />
           </button>
         </div>
       </div>
