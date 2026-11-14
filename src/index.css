@@ -1,0 +1,1142 @@
+/* ============================================================
+   ATELIER — an agentic design studio
+   Editorial print surface: bone paper, warm ink, one ultramarine
+   accent. Colour otherwise only means *status*, never decoration.
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* Paper & ink ------------------------------------------------ */
+  --paper: #edeae1;
+  --paper-2: #e5e1d6;
+  --paper-3: #dcd7c9;
+  --well: #e0dccf;
+  --ink: #17140f;
+  --ink-2: #423c31;
+  --ink-3: #726a5b;
+  --ink-4: #9a927f;
+
+  /* Hairlines -------------------------------------------------- */
+  --rule: #c9c3b4;
+  --rule-strong: #aea793;
+
+  /* The one accent --------------------------------------------- */
+  --ultra: #2433b0;
+  --ultra-deep: #16207a;
+  --ultra-wash: #d9dbef;
+
+  /* Status only ------------------------------------------------ */
+  --st-queued: #9a927f;
+  --st-working: var(--ultra);
+  --st-done: #3c6b4c;
+  --st-done-wash: #d3ddce;
+  --st-warn: #a8432a;
+
+  /* Type ------------------------------------------------------- */
+  --serif: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+  --sans: 'Instrument Sans Variable', 'Instrument Sans', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* Rhythm ----------------------------------------------------- */
+  --gutter: clamp(1.1rem, 3.5vw, 3rem);
+  --maxw: 1240px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.55;
+  font-feature-settings: 'ss01' 1, 'cv01' 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Paper grain — extremely subtle, a print artifact not a gradient */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgba(23, 20, 15, 0.045) 1px,
+    transparent 0
+  );
+  background-size: 4px 4px;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--serif);
+  font-weight: 400;
+  margin: 0;
+  letter-spacing: -0.01em;
+  line-height: 1.04;
+}
+
+p {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: var(--ultra);
+  color: #fff;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ultra);
+  outline-offset: 2px;
+  border-radius: 1px;
+}
+
+/* ============================================================
+   SHELL — a slim vertical rail + the page
+   ============================================================ */
+
+.shell {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.rail {
+  display: none;
+}
+
+/* ============================================================
+   PAGE
+   ============================================================ */
+
+.page {
+  min-width: 0;
+  padding-bottom: 4rem;
+}
+
+.wrap {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+/* Running head — magazine furniture that carries real edition data */
+.runninghead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.05rem 0 0.75rem;
+  border-bottom: 1px solid var(--ink);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  flex-wrap: wrap;
+}
+
+.runninghead b {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.runninghead span {
+  color: var(--ink-3);
+}
+
+.runninghead__floor {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--sans);
+}
+
+/* ============================================================
+   MASTHEAD
+   ============================================================ */
+
+.masthead {
+  padding: clamp(1.8rem, 5vw, 3.6rem) 0 clamp(1.4rem, 3vw, 2.2rem);
+  border-bottom: 1px solid var(--ink);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: clamp(1.2rem, 4vw, 3rem);
+  align-items: end;
+}
+
+/* compact variant used inside the floor modal */
+.masthead--compact {
+  padding: clamp(1rem, 2.5vw, 1.8rem) 0 clamp(1rem, 2vw, 1.4rem);
+}
+
+.masthead--compact .masthead__title {
+  font-size: clamp(2.1rem, 5vw, 3.4rem);
+  line-height: 0.9;
+}
+
+/* ============================================================
+   FLOOR MODAL
+   ============================================================ */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(23, 20, 15, 0.42);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(0.8rem, 4vw, 3rem);
+  overflow-y: auto;
+  animation: scrim-in 0.2s ease both;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.dialog {
+  position: relative;
+  width: 100%;
+  max-width: 1120px;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  box-shadow: 0 24px 60px -20px rgba(23, 20, 15, 0.5);
+  animation: dialog-in 0.26s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+  }
+}
+
+.dialog__bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1.1rem;
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.dialog__title {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+}
+
+.dialog__close {
+  border: 1px solid rgba(237, 234, 225, 0.4);
+  background: transparent;
+  color: var(--paper);
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  padding: 0.3rem 0.7rem;
+  transition: background 0.15s ease, border-color 0.15s;
+}
+
+.dialog__close:hover {
+  background: var(--ultra);
+  border-color: var(--ultra);
+  color: #fff;
+}
+
+.dialog__body {
+  padding: 0 clamp(1rem, 3vw, 2.4rem) clamp(1.4rem, 3vw, 2.4rem);
+}
+
+.masthead__kicker {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: clamp(1.05rem, 2.3vw, 1.5rem);
+  color: var(--ink-2);
+  margin-bottom: 0.5rem;
+}
+
+.masthead__title {
+  font-size: clamp(3rem, 9vw, 6.6rem);
+  line-height: 0.86;
+  letter-spacing: -0.025em;
+}
+
+.masthead__title em {
+  font-style: italic;
+  color: var(--ultra);
+}
+
+.masthead__lede {
+  margin-top: 1.15rem;
+  max-width: 46ch;
+  font-size: clamp(0.98rem, 1.5vw, 1.1rem);
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.masthead__meta {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  line-height: 1.9;
+  white-space: nowrap;
+}
+
+.masthead__meta strong {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.72rem;
+}
+
+/* ============================================================
+   ORG CHART — the hero
+   ============================================================ */
+
+.chart {
+  padding: clamp(2rem, 5vw, 3.4rem) 0 clamp(1rem, 2vw, 1.6rem);
+}
+
+.chart__caption {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  margin-bottom: 1.8rem;
+}
+
+.chart__caption h2 {
+  font-size: 1.05rem;
+  font-family: var(--sans);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.chart__caption p {
+  font-size: 0.86rem;
+  color: var(--ink-3);
+}
+
+/* Each tier is a centred row; connectors are drawn per-card */
+.tier {
+  display: flex;
+  justify-content: center;
+}
+
+.tier--lead {
+  margin-bottom: 0;
+}
+
+.tier--desks {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: clamp(0.5rem, 1.2vw, 1rem);
+  width: 100%;
+}
+
+/* A node ----------------------------------------------------- */
+.node {
+  --pad: clamp(0.85rem, 1.4vw, 1.15rem);
+  position: relative;
+  background: var(--paper-2);
+  border: 1px solid var(--rule-strong);
+  padding: var(--pad);
+  text-align: left;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-height: 100%;
+  transition: border-color 0.16s ease, background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.node--lead {
+  max-width: 27rem;
+  border-color: var(--ink);
+  background: var(--paper-2);
+}
+
+.node--request {
+  max-width: 18rem;
+  margin-bottom: 0;
+  background: var(--ultra-wash);
+  border-color: var(--ultra);
+  align-items: center;
+  text-align: center;
+  color: var(--ultra-deep);
+}
+
+.node--request .node__name {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.node__role {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.node__name {
+  font-family: var(--serif);
+  font-size: clamp(1.15rem, 1.6vw, 1.4rem);
+  line-height: 1.05;
+}
+
+.node--lead .node__name {
+  font-size: clamp(1.4rem, 2vw, 1.75rem);
+}
+
+.node__desc {
+  font-size: 0.82rem;
+  color: var(--ink-2);
+  line-height: 1.42;
+}
+
+.node__skills {
+  margin-top: auto;
+  padding-top: 0.55rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+}
+
+.node__chip {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+  background: var(--well);
+  border: 1px solid var(--rule);
+  padding: 0.12rem 0.4rem;
+  white-space: nowrap;
+}
+
+/* Status dot — the only place colour-as-meaning appears */
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex: none;
+  background: var(--st-queued);
+  display: inline-block;
+}
+
+.dot--working {
+  background: var(--st-working);
+  box-shadow: 0 0 0 3px rgba(36, 51, 176, 0.18);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.dot--done {
+  background: var(--st-done);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(36, 51, 176, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(36, 51, 176, 0.05);
+  }
+}
+
+/* Connector scaffolding -------------------------------------- */
+.spine {
+  width: 1px;
+  background: var(--rule-strong);
+  margin: 0 auto;
+  height: clamp(1.4rem, 3vw, 2.4rem);
+}
+
+.bus {
+  position: relative;
+  height: 1px;
+  background: var(--rule-strong);
+  margin: 0 clamp(1rem, 5vw, 3rem);
+}
+
+/* each desk gets a short drop from the bus */
+.bus-wrap {
+  position: relative;
+}
+
+.tier--desks .node::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 1px;
+  height: clamp(0.9rem, 2vw, 1.5rem);
+  background: var(--rule-strong);
+  transform: translate(-50%, -100%);
+}
+
+.tier--desks {
+  margin-top: clamp(0.9rem, 2vw, 1.5rem);
+}
+
+/* delegation caption riding the bus */
+.bus__label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--paper);
+  padding: 0 0.7rem;
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* ============================================================
+   SECTION HEADERS + RULE
+   ============================================================ */
+
+.section {
+  padding: clamp(2rem, 4vw, 3rem) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.section__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  margin-bottom: 1.5rem;
+}
+
+.section__head h2 {
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+}
+
+.section__head .note {
+  font-size: 0.85rem;
+  color: var(--ink-3);
+  font-family: var(--mono);
+}
+
+/* Dossier — the roster, as an editorial index ----------------- */
+.ledger {
+  border-top: 1px solid var(--rule);
+}
+
+.ledger__row {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(9rem, 1.1fr) 2fr auto;
+  gap: clamp(0.7rem, 2vw, 1.6rem);
+  align-items: start;
+  padding: 1.15rem 0;
+  border-bottom: 1px solid var(--rule);
+  transition: background 0.14s ease;
+}
+
+.ledger__row:hover {
+  background: var(--paper-2);
+}
+
+.ledger__idx {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-4);
+  padding-top: 0.35rem;
+}
+
+.ledger__id {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.ledger__name {
+  font-family: var(--serif);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.ledger__role {
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--ultra);
+  letter-spacing: 0.005em;
+}
+
+.ledger__brief {
+  font-size: 0.9rem;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+
+.ledger__caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.55rem;
+}
+
+.ledger__stat {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  align-items: flex-end;
+}
+
+.ledger__stat b {
+  font-family: var(--serif);
+  font-size: 1.15rem;
+  color: var(--ink);
+  font-weight: 400;
+}
+
+/* ============================================================
+   COLOPHON — studio stats, flat, ruled
+   ============================================================ */
+
+.colophon {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+}
+
+.colophon__cell {
+  padding: 1.4rem 1.2rem 1.5rem;
+  border-right: 1px solid var(--rule);
+}
+
+.colophon__cell:last-child {
+  border-right: 0;
+}
+
+.colophon__num {
+  font-family: var(--serif);
+  font-size: clamp(2.1rem, 4.5vw, 3.2rem);
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+}
+
+.colophon__num em {
+  font-style: italic;
+  color: var(--ultra);
+}
+
+.colophon__label {
+  margin-top: 0.55rem;
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  line-height: 1.35;
+}
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.86rem;
+  padding: 0.6rem 1.05rem;
+  border-radius: 0;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.btn--solid {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.btn--solid:hover {
+  background: var(--ultra);
+  border-color: var(--ultra);
+  color: #fff;
+}
+
+.btn--ghost {
+  border-color: var(--rule-strong);
+  color: var(--ink-2);
+}
+
+.btn--ghost:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn--sm {
+  padding: 0.42rem 0.8rem;
+  font-size: 0.78rem;
+}
+
+/* ============================================================
+   RUN CONSOLE
+   ============================================================ */
+
+.composer {
+  padding: clamp(1.6rem, 4vw, 2.6rem) 0 0;
+}
+
+.composer__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.composer__label {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.25rem;
+  color: var(--ink-2);
+}
+
+.composer textarea {
+  width: 100%;
+  min-height: 4.6rem;
+  resize: vertical;
+  background: var(--paper-2);
+  border: 1px solid var(--rule-strong);
+  padding: 1rem 1.1rem;
+  font-family: var(--sans);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink);
+  border-radius: 0;
+}
+
+.composer textarea::placeholder {
+  color: var(--ink-4);
+}
+
+.composer textarea:focus {
+  outline: none;
+  border-color: var(--ultra);
+  background: var(--paper);
+}
+
+.composer__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.presets {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.preset {
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 0.76rem;
+  padding: 0.32rem 0.62rem;
+  border-radius: 0;
+  transition: border-color 0.14s, color 0.14s, background 0.14s;
+}
+
+.preset:hover {
+  border-color: var(--ultra);
+  color: var(--ultra);
+  background: var(--paper);
+}
+
+/* run board --------------------------------------------------- */
+.run {
+  display: grid;
+  grid-template-columns: 1.55fr 1fr;
+  gap: clamp(1.2rem, 3vw, 2.6rem);
+  padding: clamp(1.6rem, 4vw, 2.6rem) 0;
+  align-items: start;
+}
+
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.desk-card {
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  padding: 0.95rem 1.05rem;
+  transition: border-color 0.2s ease, background 0.2s;
+  position: relative;
+}
+
+.desk-card--working {
+  border-color: var(--ultra);
+  background: var(--paper);
+}
+
+.desk-card--done {
+  border-color: var(--rule-strong);
+}
+
+.desk-card__top {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.desk-card__name {
+  font-family: var(--serif);
+  font-size: 1.18rem;
+  line-height: 1;
+}
+
+.desk-card__phase {
+  margin-left: auto;
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.desk-card--working .desk-card__phase {
+  color: var(--ultra);
+}
+
+.desk-card__now {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+  min-height: 1.3em;
+}
+
+.desk-card__now .cursor {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  background: var(--ultra);
+  vertical-align: text-bottom;
+  margin-left: 1px;
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.desk-card__artifact {
+  margin-top: 0.75rem;
+  border-top: 1px dashed var(--rule);
+  padding-top: 0.7rem;
+  font-size: 0.82rem;
+  color: var(--ink);
+  animation: rise 0.32s ease both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.artifact__title {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--st-done);
+  margin-bottom: 0.3rem;
+}
+
+.artifact__body {
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.artifact__body strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* activity log ------------------------------------------------- */
+.log {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: #d7d2c4;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 34rem;
+  position: sticky;
+  top: 1.2rem;
+}
+
+.log__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.log__head .live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #9fe0b4;
+}
+
+.log__body {
+  padding: 0.7rem 0.9rem;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.log__line {
+  display: flex;
+  gap: 0.6rem;
+  animation: rise 0.2s ease both;
+}
+
+.log__t {
+  color: #7d7663;
+  flex: none;
+}
+
+.log__who {
+  color: #b9b2a0;
+  flex: none;
+  min-width: 6.4rem;
+}
+
+.log__msg {
+  color: #efece2;
+}
+
+.log__line--lead .log__who {
+  color: #8fa0ff;
+}
+
+.log__line--done .log__msg {
+  color: #9fe0b4;
+}
+
+.log__empty {
+  color: #7d7663;
+  padding: 1rem 0;
+}
+
+/* run summary strip ------------------------------------------- */
+.runbar {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--ink);
+  margin-top: clamp(1.4rem, 3vw, 2rem);
+}
+
+.runbar__seg {
+  flex: 1;
+  padding: 0.8rem 1rem;
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.runbar__seg:last-child {
+  border-right: 0;
+}
+
+.runbar__k {
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.runbar__v {
+  font-family: var(--serif);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.progress {
+  flex: 1.4;
+  justify-content: center;
+}
+
+.progress__track {
+  height: 5px;
+  background: var(--paper-3);
+  position: relative;
+  overflow: hidden;
+  margin-top: 0.4rem;
+}
+
+.progress__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ultra);
+  transition: width 0.4s ease;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 980px) {
+  .run {
+    grid-template-columns: 1fr;
+  }
+  .log {
+    position: static;
+    max-height: 22rem;
+  }
+}
+
+/* The chart + ledger live inside the floor dialog — size to the dialog,
+   not the viewport, so the five-desk schematic collapses gracefully. */
+.dialog__body {
+  container-type: inline-size;
+}
+
+@container (max-width: 860px) {
+  .tier--desks {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .tier--desks .node::before,
+  .bus {
+    display: none;
+  }
+  .ledger__row {
+    grid-template-columns: 1.6rem 1fr;
+    gap: 0.4rem 0.8rem;
+  }
+  .ledger__brief {
+    grid-column: 2 / -1;
+  }
+  .ledger__stat {
+    grid-column: 2 / -1;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0.4rem;
+    text-align: left;
+  }
+}
+
+@container (max-width: 560px) {
+  .tier--desks {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .masthead {
+    grid-template-columns: 1fr;
+  }
+  .masthead__meta {
+    text-align: left;
+  }
+  .colophon {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .colophon__cell:nth-child(2) {
+    border-right: 0;
+  }
+  .colophon__cell:nth-child(1),
+  .colophon__cell:nth-child(2) {
+    border-bottom: 1px solid var(--rule);
+  }
+  .runbar {
+    flex-wrap: wrap;
+  }
+  .runbar__seg {
+    flex-basis: 50%;
+    border-bottom: 1px solid var(--rule);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
