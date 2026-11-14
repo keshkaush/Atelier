@@ -4,6 +4,10 @@ import { StageAnalyze } from './workspace/StageAnalyze';
 import { StageDecompose } from './workspace/StageDecompose';
 import { StageProposal } from './workspace/StageProposal';
 import { StageApproved } from './workspace/StageApproved';
+import { StageBranchPrep } from './workspace/StageBranchPrep';
+import { StageFinalApprove } from './workspace/StageFinalApprove';
+import { StageReview } from './workspace/StageReview';
+import { StageQA } from './workspace/StageQA';
 
 const STEPS = [
   { key: 'input', label: 'Brief' },
@@ -11,9 +15,12 @@ const STEPS = [
   { key: 'decompose', label: 'Decompose' },
   { key: 'proposal', label: 'Propose' },
   { key: 'approved', label: 'Approve' },
+  { key: 'branch', label: 'Branch' },
+  { key: 'implement', label: 'Implement' },
+  { key: 'qa', label: 'Verify' },
 ] as const;
 
-/** Map the hook's fine-grained stage onto the five tracker steps. */
+/** Map the hook's fine-grained stage onto the eight tracker steps. */
 function stepIndex(stage: string): number {
   switch (stage) {
     case 'input':
@@ -28,6 +35,15 @@ function stepIndex(stage: string): number {
       return 3;
     case 'approved':
       return 4;
+    case 'branch-prep':
+    case 'final-approve':
+      return 5;
+    case 'implementing':
+    case 'review':
+      return 6;
+    case 'qa':
+    case 'complete':
+      return 7;
     default:
       return 0;
   }
@@ -52,7 +68,7 @@ export function WorkspaceView() {
           <br />
           until you approve
           <br />
-          branch prep · next
+          dry-run diff · qa
         </div>
       </header>
 
@@ -68,7 +84,11 @@ export function WorkspaceView() {
         })}
       </nav>
 
-      {ws.error && <div className="ws-error" role="alert">{ws.error}</div>}
+      {ws.error && (
+        <div className="ws-error" role="alert">
+          {ws.error}
+        </div>
+      )}
 
       {ws.stage === 'input' || ws.stage === 'analyzing' ? (
         <StageInput
@@ -91,7 +111,7 @@ export function WorkspaceView() {
         />
       ) : null}
 
-      {(ws.stage === 'decomposing' || ws.stage === 'decomposed') ? (
+      {ws.stage === 'decomposing' || ws.stage === 'decomposed' ? (
         <StageDecompose
           workstreams={ws.workstreams}
           busy={ws.busy}
@@ -112,7 +132,79 @@ export function WorkspaceView() {
       ) : null}
 
       {ws.stage === 'approved' && ws.proposal ? (
-        <StageApproved proposal={ws.proposal} onReset={ws.reset} />
+        <StageApproved proposal={ws.proposal} onReset={ws.reset} onContinue={ws.openBranchPrep} />
+      ) : null}
+
+      {ws.stage === 'branch-prep' ? (
+        <StageBranchPrep
+          brief={ws.brief}
+          attached={ws.attached}
+          proposal={ws.proposal}
+          branch={ws.branch}
+          busy={ws.busy}
+          error={ws.error}
+          canAdvance={ws.canAdvanceBranchPrep}
+          onCreate={ws.confirmBranch}
+          onSkip={ws.skipBranch}
+          onBack={ws.backToProposal}
+        />
+      ) : null}
+
+      {ws.stage === 'final-approve' ? (
+        <StageFinalApprove
+          proposal={ws.proposal}
+          attached={ws.attached}
+          branch={ws.branch}
+          busy={ws.busy}
+          onApprove={ws.beginImplement}
+          onBackToBranch={ws.backToBranchPrep}
+          onBackToProposal={ws.backToProposal}
+        />
+      ) : null}
+
+      {ws.stage === 'implementing' ? (
+        <div className="stage stage--implementing">
+          <div className="stage__intro">
+            <p className="stage__kicker">Step eight — implementation</p>
+            <h2 className="stage__title">
+              Drafting the <em>diff</em>…
+            </h2>
+            <p className="stage__lede">
+              Reading the files in scope and shaping a reviewable change. Nothing is
+              written.
+            </p>
+          </div>
+          <div className="qa-running">
+            <span className="dot dot--working" />
+            <span>Generating a dry-run diff from the plan…</span>
+          </div>
+        </div>
+      ) : null}
+
+      {ws.stage === 'review' && ws.plan ? (
+        <StageReview
+          plan={ws.plan}
+          decisions={ws.reviewDecisions}
+          onDecision={ws.setReviewDecision}
+          onAll={ws.setAllReviewDecisions}
+          busy={ws.busy}
+          onNext={ws.approveFinal}
+          onBack={ws.backToBranchPrep}
+        />
+      ) : null}
+
+      {(ws.stage === 'qa' || ws.stage === 'complete') ? (
+        <StageQA
+          stage={ws.stage}
+          qa={ws.qa}
+          verdict={ws.qaVerdict}
+          plan={ws.plan}
+          proposal={ws.proposal}
+          attached={ws.attached}
+          acceptedCount={ws.acceptedFiles.length}
+          onBack={ws.backToReview}
+          onReset={ws.reset}
+        />
       ) : null}
     </div>
   );

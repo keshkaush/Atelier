@@ -9,7 +9,7 @@ Two peer modes, switched from the top bar:
 
 **The floor** (pop-up): the org chart, studio stats, and roster — reachable from both modes.
 
-> The demo is scripted and the workspace ships against a mock host. Both run offline with no model and no filesystem access. To make either live, attach a model and (for the workspace) a real host — see below.
+> The brief console is a scripted simulation. The workspace runs against a **mock host** by default (offline, no filesystem access) or a **real local host** — a zero-dependency Node sidecar that reads a real folder and runs git. To make either live, attach a model and (for the workspace) start the sidecar — see below.
 
 ## Run
 
@@ -20,6 +20,37 @@ npm run build
 ```
 
 Requires Node 18+.
+
+### Real host (optional)
+
+The workspace can read a **real project directory** and run **real git** instead of the mock. This is a local Node sidecar; the browser never touches the filesystem directly.
+
+```bash
+# terminal 1 — start the sidecar with the folders you want to expose
+ATELIER_ROOTS="/abs/path/to/your/project" npm run host
+
+# terminal 2 — start the app pointed at the local host
+VITE_HOST=local ATELIER_TOKEN=<token the sidecar printed> npm run dev
+```
+
+Env vars:
+
+| Var | Where | Meaning |
+| --- | --- | --- |
+| `ATELIER_ROOTS` | sidecar | `;`-separated absolute paths it may read/git. Nothing else is reachable. |
+| `ATELIER_PORT` | sidecar | Port to bind (default `5179`, loopback only). |
+| `ATELIER_TOKEN` | sidecar + vite | Shared secret. Sidecar prints one on boot if unset; Vite injects it on the `/api` proxy so the browser never holds it. |
+| `VITE_HOST` | app | `local` selects the sidecar host; unset = mock. |
+
+**Security posture.** The sidecar binds `127.0.0.1` only, requires the token header, and confines every read and git call to `ATELIER_ROOTS` (paths are `realpath`-resolved; `..` and absolute inputs are rejected). Git runs through `execFile` with argument arrays — never a shell string. Branch creation checks for a dirty tree first and **never auto-stashes**; the only filesystem mutation in the whole app is the opt-in `git checkout -b` you trigger yourself. Everything else — analysis, propose, the dry-run diff, QA — is read-only.
+
+Host tests (any OS with git + node):
+
+```bash
+npm run test:host      # sidecar: walk, git-status, branch, allowlist, verify
+npm run test:machine   # reducer transitions across all nine stages
+npm test               # both
+```
 
 ## The five desks
 
@@ -63,17 +94,23 @@ To make the desks generate real output, call `complete()` in `src/lib/model.ts` 
 
 ## Project workspace
 
-The project-aware flow runs a five-step journey, all *before* anything is built:
+The project-aware flow runs a nine-step journey. The first half is analysis-first and writes nothing; the second half is a reviewable dry run that still writes nothing:
 
 1. **Brief + attach** — describe the change and attach a project directory.
 2. **Analyse** — structural detection of framework, styling, components, tokens and themes, each claim backed by the files that prove it. Dependencies, build output, lockfiles, secrets and binaries are never crawled (the ignored tally is shown explicitly).
 3. **Decompose** — the brief split into workstreams, one per desk, grounded in the real paths each will touch.
 4. **Propose** — a versioned high-level design proposal: requirement understanding, proposed design, a schematic wireframe preview, and implementation impact.
-5. **Decide** — approve, revise (new version), choose an alternative (new version), or cancel. Approve lands on a holding card; branch prep, implementation and QA are the next milestone.
+5. **Decide** — approve, revise (new version), choose an alternative (new version), or cancel.
+6. **Branch prep** — opt-in, off by default. An editable branch name (pre-filled from a slug of the brief, validated live), a dirty-tree warning that requires acknowledgement, and the current branch / ahead-behind. Copy states plainly that **Atelier never stashes your changes**.
+7. **Final approval** — the last gate before any file work: proposal version, branch (or none), impact counts, and an explicit "begin implementation".
+8. **Implementation (dry run)** — a deterministic, reviewable per-file diff shaped from the plan and your project's real files. Accept or skip each file (plan membership only). **Nothing is applied** — you take the diff into your editor.
+9. **QA / verification** — runs the target project's own typecheck (`tsc -b` / a `typecheck` script), plus lint and tests if declared. Degrades gracefully when a check can't run on the host platform. Reports a verdict, per-step results, and a change summary, with timestamp.
 
-**Host seam.** A browser can't read a folder or run `git`, so all filesystem/git access goes through one interface — `HostBridge` in `src/lib/host/`. Milestone 1 ships `MockHost` (canned sample projects) so the whole journey runs offline. Because the analysis engine (`src/lib/project/analyze.ts`) consumes only a `DirListing`, the same code runs unchanged against a real folder once a local adapter (Node companion / Tauri) implements the same interface — swap the export in `src/lib/host/index.ts`.
+The only filesystem mutation anywhere is the opt-in `git checkout -b` from step 6. Nothing else — not the diff, not QA — writes.
 
-**Wiring a real model.** `src/lib/project/decompose.ts` and `proposal.ts` are deterministic by default (offline, instant). To generate proposals with a model instead, call `complete()` from `src/lib/model.ts` with the Lead's mandate as the system prompt and the brief + analysis as the user message, and parse its JSON into `Workstream[]` / `DesignProposal`. The seam is already shaped for it.
+**Host seam.** A browser can't read a folder or run `git`, so all filesystem/git access goes through one interface — `HostBridge` in `src/lib/host/` (`listProject`, `gitStatus`, `createBranch`, `readFile`, `verify`). Two implementations: `MockHost` (canned sample projects, offline) and `LocalHost` (the `server/` Node sidecar behind `/api`). Because the analysis engine consumes only a `DirListing` and the diff shaper only a file's text, the same frontend runs unchanged against either — pick with `VITE_HOST`.
+
+**Wiring a real model.** `src/lib/project/decompose.ts` and `proposal.ts` are deterministic by default (offline, instant), as is the dry-run generator `implement.ts`. To generate any of them with a model instead, call `complete()` from `src/lib/model.ts` with the relevant mandate as the system prompt and the brief + analysis as the user message, and parse its JSON into `Workstream[]` / `DesignProposal` / a set of edits. The seam is already shaped for it — the rest of the pipeline (diff rendering, review, QA) is unchanged.
 
 ## Structure
 
@@ -82,7 +119,8 @@ src/
   App.tsx                    shell + mode switch
   views/RunConsole.tsx        brief console: brief, board, activity log
   views/WorkspaceView.tsx     project workspace: stage router + stepper
-  views/workspace/*           StageInput, Analyze, Decompose, Proposal, Approved
+  views/workspace/*           StageInput, Analyze, Decompose, Proposal, Approved,
+                              BranchPrep, FinalApprove, Review (+DiffView), QA
   views/FloorModal.tsx        the floor pop-up
   components/OrgChart.tsx     org chart
   components/FileTree.tsx     project file tree (dimmed ignores)
@@ -90,10 +128,15 @@ src/
   lib/studio.ts               desks, copy, run script
   lib/useRunner.ts            run simulation  (wire real calls here)
   lib/model.ts                OpenAI-compatible adapter
-  lib/host/                   HostBridge seam + MockHost + sample projects
-  lib/project/                analyze.ts, decompose.ts, proposal.ts (pure)
-  lib/workspace/              useWorkspace.ts state machine
+  lib/host/                   HostBridge seam + MockHost + LocalHost + samples
+  lib/project/                analyze.ts, decompose.ts, proposal.ts, diff.ts, implement.ts (pure)
+  lib/workspace/              machine.ts (pure reducer) + useWorkspace.ts + tests
   index.css                   design system
+server/                       zero-dep Node sidecar (the real local host)
+  index.mjs                   HTTP server: /api/list, git-status, branch, read, verify
+  lib/                        allowlist, walk, git, branch, verify
+  test/                       host tests (throwaway /tmp git repos)
+scripts/test-machine.mjs      compile + run the reducer suite
 ```
 
 ## Design

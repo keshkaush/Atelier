@@ -1,16 +1,18 @@
 import type { DesignProposal } from '../../lib/project/proposal';
-import { IconCheck, IconGitBranch, IconRestart } from '../../components/Icons';
+import { IconCheck, IconGitBranch, IconRestart, IconArrow } from '../../components/Icons';
 
 /**
- * The holding state after approval. Milestone 1 stops here by design:
- * branch preparation, implementation and QA are Milestone 2. This card
- * makes the boundary explicit rather than faking a build.
+ * The holding state after proposal approval. In Milestone 2 this is no
+ * longer a dead end — "Continue to branch prep" opens stage 6. It restates
+ * that approval authorised the next stage and nothing has touched disk yet.
  */
 export function StageApproved({
   proposal,
+  onContinue,
   onReset,
 }: {
   proposal: DesignProposal;
+  onContinue: () => void;
   onReset: () => void;
 }) {
   return (
@@ -30,19 +32,24 @@ export function StageApproved({
 
         <div className="approved__next">
           <div className="approved__next-head">
-            <IconGitBranch size={16} /> Next — Milestone 2
+            <IconGitBranch size={16} /> Next
           </div>
           <ul className="approved__steps">
-            <li>Git branch preparation — opt-in, editable name, dirty-tree warning, never auto-stash.</li>
-            <li>Final approval gate.</li>
-            <li>Implementation with a reviewable diff.</li>
-            <li>QA / verification report.</li>
+            <li>Branch preparation — opt-in, editable name, dirty-tree warning, never auto-stash.</li>
+            <li>Final approval gate — the last screen before any file work.</li>
+            <li>Implementation — a reviewable dry-run diff, nothing applied.</li>
+            <li>QA / verification — the project’s own typecheck, lint and tests.</li>
           </ul>
         </div>
 
-        <button className="btn btn--solid" type="button" onClick={onReset}>
-          <IconRestart size={15} /> Start another brief
-        </button>
+        <div className="approved__actions">
+          <button className="btn btn--ghost" type="button" onClick={onReset}>
+            <IconRestart size={15} /> Start another brief
+          </button>
+          <button className="btn btn--solid" type="button" onClick={onContinue}>
+            Continue to branch prep <IconArrow size={16} />
+          </button>
+        </div>
       </div>
     </div>
   );

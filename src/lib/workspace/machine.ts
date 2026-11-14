@@ -479,6 +479,22 @@ export function acceptedDiffs(state: WsState): FileDiff[] {
   );
 }
 
+/**
+ * Slug a brief into a `feat/…` branch name — the branch-prep default.
+ * Lower-cases, drops punctuation, collapses to hyphen-separated words,
+ * and caps length so the result always passes isValidBranchName.
+ */
+export function slugToBranch(brief: string, maxWords = 5): string {
+  const words = brief
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]+/g, ' ')
+    .split(/[\s-]+/)
+    .filter(Boolean)
+    .slice(0, maxWords);
+  const slug = words.join('-').slice(0, 48).replace(/-+$/, '');
+  return slug ? `feat/${slug}` : 'feat/change';
+}
+
 /** Aggregate verdict for the QA report — the worst step status wins. */
 export type QaVerdict = 'pass' | 'fail' | 'unavailable';
 export function qaVerdict(state: WsState): QaVerdict {

@@ -46,8 +46,15 @@ import {
 } from './machine';
 import type { FileDiff } from '../project/diff';
 
-// Re-export the public types so existing importers keep working.
-export type { Stage, AttachedProject, BranchChoice, QaVerdict } from './machine';
+// Re-export the public types + pure helpers so views import from one place.
+export type {
+  Stage,
+  AttachedProject,
+  BranchChoice,
+  QaVerdict,
+  ImplementationPlanState,
+} from './machine';
+export { slugToBranch, isValidBranchName } from './machine';
 
 export interface WorkspaceState {
   stage: Stage;
