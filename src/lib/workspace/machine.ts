@@ -20,17 +20,34 @@
      proposal ──DECISION(revise/alt)──▶ proposal   (versions grow; computed by caller)
      proposal ──APPROVE──▶ approved
      proposal ──CANCEL──▶ input
+     approved ──OPEN_BRANCH_PREP──▶ branch-prep
+     branch-prep ──BRANCH_PREP_OK──▶ final-approve
+     final-approve ──BEGIN_IMPLEMENT──▶ implementing
+     implementing ──IMPLEMENT_OK──▶ review
+     review ──APPROVE_FINAL──▶ qa
+     qa ──QA_REPORT──▶ complete
      any ──RESET──▶ initial
      any ──DETACH──▶ input (project + downstream cleared)
+
+   Back edges (each guarded to its own stage):
+     reviewed ──BACK_TO_BRANCH_PREP──▶ branch-prep   (from final-approve)
+     reviewed ──BACK_TO_REVIEW──▶ review             (from qa)
+     * the proposal's own BACK_* edges handle steps 1–5.
+
+   Milestone-2 invariant: nothing before `begin implementation` requires
+   any disk write except the *opt-in* branch creation (a guarded, explicit
+   user action). The reducer itself is pure — it only records stage and
+   data; the hook performs I/O behind explicit confirm actions.
 
    `viewingVersion` overlays any proposal-bearing stage: non-null
    means the rail is pinned to a past version (read-only).
    ============================================================ */
 
-import type { DirListing, GitStatus } from '../host/types';
+import type { DirListing, GitStatus, VerifyReport } from '../host/types';
 import type { ProjectAnalysis } from '../project/analyze';
 import type { Workstream } from '../project/decompose';
 import type { DesignProposal } from '../project/proposal';
+import type { FileDiff } from '../project/diff';
 
 export type Stage =
   | 'input'
@@ -39,7 +56,35 @@ export type Stage =
   | 'decomposing'
   | 'decomposed'
   | 'proposal'
-  | 'approved';
+  | 'approved'
+  | 'branch-prep'
+  | 'final-approve'
+  | 'implementing'
+  | 'review'
+  | 'qa'
+  | 'complete';
+
+/** The user's branch decision, recorded on the branch-prep stage. */
+export interface BranchChoice {
+  /** 'create' = make a branch, 'skip' = proceed on the current one. */
+  mode: 'create' | 'skip';
+  /** The branch the user is on now (from git status), for display. */
+  currentBranch?: string;
+  /** The new branch name, when mode==='create'. */
+  name?: string;
+  /** The branch that resulted (created) — equals `name` after a successful create. */
+  created?: string;
+  /** Whether the tree was dirty and the user acknowledged it. */
+  dirtyAcknowledged?: boolean;
+}
+
+/** The generated dry-run plan the review stage renders. */
+export interface ImplementationPlanState {
+  diffs: FileDiff[];
+  skipped: { path: string; reason: string }[];
+  totals: { files: number; adds: number; dels: number };
+  generatedAt: number;
+}
 
 export interface AttachedProject {
   /** Mock sample id (serves as the "root"); a real host would pass a path. */
@@ -59,6 +104,16 @@ export interface WsState {
   versions: DesignProposal[];
   /** Non-null only while the rail is pinned to a past version. */
   viewingVersion: number | null;
+  /** Stage 6 — the branch decision (opt-in; default mode is 'skip'). */
+  branch?: BranchChoice;
+  /** Stage 7 — set once the user passes the final approval gate. */
+  finalApprovedAt?: number;
+  /** Stage 8 — the generated dry-run plan. */
+  plan?: ImplementationPlanState;
+  /** Per-file review decisions, keyed by path (UI-only, no writes). */
+  reviewDecisions: Record<string, 'accept' | 'skip'>;
+  /** Stage 9 — the QA report from the host. */
+  qa?: VerifyReport;
   error?: string;
 }
 
@@ -67,6 +122,7 @@ export const initialState: WsState = {
   brief: '',
   versions: [],
   viewingVersion: null,
+  reviewDecisions: {},
 };
 
 /* ---------------------------------------------------------- */
@@ -90,6 +146,23 @@ export type WsAction =
   | { type: 'VIEW_VERSION'; version: number }
   | { type: 'BACK_TO_INPUT' }
   | { type: 'BACK_TO_ANALYZED' }
+  /* --- stages 6–9 ------------------------------------------------ */
+  | { type: 'REFRESH_GIT'; git: GitStatus }
+  | { type: 'OPEN_BRANCH_PREP' }
+  | { type: 'SET_BRANCH_CHOICE'; choice: BranchChoice }
+  | { type: 'BRANCH_PREP_OK'; choice: BranchChoice }
+  | { type: 'BRANCH_FAIL'; error: string }
+  | { type: 'BACK_TO_PROPOSAL' }
+  | { type: 'BACK_TO_BRANCH_PREP' }
+  | { type: 'BEGIN_IMPLEMENT'; finalApprovedAt: number }
+  | { type: 'IMPLEMENT_OK'; plan: ImplementationPlanState }
+  | { type: 'IMPLEMENT_FAIL'; error: string }
+  | { type: 'SET_REVIEW_DECISION'; path: string; decision: 'accept' | 'skip' }
+  | { type: 'SET_REVIEW_DECISIONS'; decisions: Record<string, 'accept' | 'skip'> }
+  | { type: 'APPROVE_FINAL' }
+  | { type: 'QA_REPORT'; report: VerifyReport }
+  | { type: 'QA_FAIL'; error: string }
+  | { type: 'BACK_TO_REVIEW' }
   | { type: 'RESET' };
 
 /** How the machine answers a transition from a stage that doesn't
@@ -167,16 +240,146 @@ export function workspaceReducer(state: WsState, action: WsAction): WsState {
       if (state.stage !== 'proposal') return state;
       return { ...state, stage: 'approved' };
 
+    /* --- stage 6: branch prep ---------------------------------- */
+    case 'REFRESH_GIT':
+      // Re-read the working tree's git status (branch, dirty) without
+      // moving stages — used when the branch-prep stage opens so the
+      // dirty warning + current branch are live, not stale from attach.
+      if (!state.attached) return state;
+      return {
+        ...state,
+        attached: { ...state.attached, git: action.git },
+        branch: state.branch
+          ? { ...state.branch, currentBranch: action.git.branch ?? state.branch.currentBranch }
+          : state.branch,
+      };
+
+    case 'OPEN_BRANCH_PREP':
+      if (state.stage !== 'approved') return state;
+      // Default: no branch (opt-in). Seed the choice from the attached
+      // project's current branch so the stage opens with real context.
+      return {
+        ...state,
+        stage: 'branch-prep',
+        branch:
+          state.branch ?? {
+            mode: 'skip',
+            currentBranch: state.attached?.git.branch,
+          },
+      };
+
+    case 'SET_BRANCH_CHOICE':
+      if (state.stage !== 'branch-prep') return state;
+      // Editing the choice while still on the stage; no stage change.
+      return { ...state, branch: action.choice };
+
+    case 'BRANCH_PREP_OK':
+      if (state.stage !== 'branch-prep') return state;
+      return { ...state, stage: 'final-approve', branch: action.choice, error: undefined };
+
+    case 'BRANCH_FAIL':
+      // A create-branch attempt was refused (dirty tree, name exists…).
+      // Stay on the stage; surface the note so the user can react.
+      if (state.stage !== 'branch-prep') return state;
+      return { ...state, error: action.error };
+
+    case 'BACK_TO_PROPOSAL':
+      // From the branch-prep / approval gate back to the proposal. Clears
+      // the branch decision + downstream so re-approval starts fresh.
+      if (state.stage !== 'branch-prep' && state.stage !== 'final-approve') {
+        return state;
+      }
+      return {
+        ...state,
+        stage: 'proposal',
+        branch: undefined,
+        finalApprovedAt: undefined,
+        plan: undefined,
+        qa: undefined,
+        reviewDecisions: {},
+      };
+
+    /* --- stage 7: final approval → implement ------------------- */
+    case 'BEGIN_IMPLEMENT':
+      if (state.stage !== 'final-approve') return state;
+      return {
+        ...state,
+        stage: 'implementing',
+        finalApprovedAt: action.finalApprovedAt,
+        plan: undefined,
+        error: undefined,
+      };
+
+    /* --- stage 8: implementation (dry-run) --------------------- */
+    case 'IMPLEMENT_OK':
+      if (state.stage !== 'implementing') return state;
+      // Default every diffed file to "accept" for review; the user flips
+      // individual files off. Pure UI state — nothing is written.
+      return {
+        ...state,
+        stage: 'review',
+        plan: action.plan,
+        reviewDecisions: Object.fromEntries(
+          action.plan.diffs
+            .filter((d) => d.status !== 'unchanged')
+            .map((d) => [d.path, 'accept' as const]),
+        ),
+        error: undefined,
+      };
+
+    case 'IMPLEMENT_FAIL':
+      if (state.stage !== 'implementing') return state;
+      return { ...state, stage: 'final-approve', error: action.error };
+
+    case 'SET_REVIEW_DECISION':
+      if (state.stage !== 'review') return state;
+      return {
+        ...state,
+        reviewDecisions: { ...state.reviewDecisions, [action.path]: action.decision },
+      };
+
+    case 'SET_REVIEW_DECISIONS':
+      if (state.stage !== 'review') return state;
+      return { ...state, reviewDecisions: { ...action.decisions } };
+
+    case 'APPROVE_FINAL':
+      // The last gate before QA. Requires a generated plan to exist.
+      if (state.stage !== 'review' || !state.plan) return state;
+      return { ...state, stage: 'qa', qa: undefined, error: undefined };
+
+    case 'BACK_TO_REVIEW':
+      if (state.stage !== 'qa') return state;
+      return { ...state, stage: 'review', qa: undefined };
+
+    /* --- stage 9: QA ------------------------------------------- */
+    case 'QA_REPORT':
+      if (state.stage !== 'qa') return state;
+      return { ...state, stage: 'complete', qa: action.report, error: undefined };
+
+    case 'QA_FAIL':
+      if (state.stage !== 'qa') return state;
+      return { ...state, stage: 'review', error: action.error };
+
+    case 'BACK_TO_BRANCH_PREP':
+      if (state.stage !== 'final-approve') return state;
+      return { ...state, stage: 'branch-prep' };
+
     case 'BACK_TO_INPUT':
       // Return to the brief/attach stage but KEEP the attached project and
       // its analysis, so the user can edit the brief and re-run without
-      // re-attaching. Clears only the decomposition/proposal downstream.
+      // re-attaching. Clears only the decomposition/proposal downstream
+      // (and any stages 6–9 state that depended on them).
       return {
         ...state,
         stage: 'input',
         workstreams: undefined,
         versions: [],
         viewingVersion: null,
+        branch: undefined,
+        finalApprovedAt: undefined,
+        plan: undefined,
+        qa: undefined,
+        reviewDecisions: {},
         error: undefined,
       };
 
@@ -221,7 +424,70 @@ export function displayedProposal(state: WsState): DesignProposal | undefined {
   return state.versions[state.versions.length - 1];
 }
 
-/** In-flight is fully determined by the two transient stages. */
+/** In-flight is fully determined by the transient stages (analysis,
+    decomposition, and the two async stage-7/8/9 steps). */
 export function isBusy(state: WsState): boolean {
-  return state.stage === 'analyzing' || state.stage === 'decomposing';
+  return (
+    state.stage === 'analyzing' ||
+    state.stage === 'decomposing' ||
+    state.stage === 'implementing' ||
+    state.stage === 'qa'
+  );
+}
+
+/* --- stage 6–9 selectors ------------------------------------- */
+
+/** The proposal the user actually approved (the latest, not a pinned past one). */
+export function approvedProposal(state: WsState): DesignProposal | undefined {
+  return state.versions[state.versions.length - 1];
+}
+
+/**
+ * Can the branch-prep stage advance? True when the user chose "skip"
+ * (proceed on current branch), or chose "create" with a valid name —
+ * and, if the tree is dirty, has acknowledged it. The name-format check
+ * is duplicated here (mirrors server BRANCH_RE) so the button state is
+ * derived, not hand-tracked.
+ */
+export const BRANCH_NAME_RE = /^[a-z0-9][a-z0-9._/-]*$/i;
+export function isValidBranchName(name: string | undefined): boolean {
+  if (!name) return false;
+  if (!BRANCH_NAME_RE.test(name)) return false;
+  if (name.includes('..') || name.includes('//')) return false;
+  if (name.endsWith('/') || name.endsWith('.')) return false;
+  return true;
+}
+
+export function canAdvanceBranchPrep(state: WsState): boolean {
+  const b = state.branch;
+  if (!b) return false;
+  if (b.mode === 'skip') {
+    // If the tree is dirty, skipping still requires acknowledgement so the
+    // user knowingly proceeds on a dirty working copy (never auto-stashed).
+    return !state.attached?.git.dirty || Boolean(b.dirtyAcknowledged);
+  }
+  // mode === 'create'
+  if (!isValidBranchName(b.name)) return false;
+  return !state.attached?.git.dirty || Boolean(b.dirtyAcknowledged);
+}
+
+/** Files the user has accepted for the (dry-run) implementation. */
+export function acceptedDiffs(state: WsState): FileDiff[] {
+  if (!state.plan) return [];
+  return state.plan.diffs.filter(
+    (d) => d.status !== 'unchanged' && state.reviewDecisions[d.path] === 'accept',
+  );
+}
+
+/** Aggregate verdict for the QA report — the worst step status wins. */
+export type QaVerdict = 'pass' | 'fail' | 'unavailable';
+export function qaVerdict(state: WsState): QaVerdict {
+  const report = state.qa;
+  if (!report) return 'unavailable';
+  const steps = Object.values(report.steps);
+  if (steps.some((s) => s.status === 'fail' || s.status === 'error')) return 'fail';
+  if (steps.every((s) => s.status === 'skipped' || s.status === 'unavailable')) {
+    return 'unavailable';
+  }
+  return 'pass';
 }
