@@ -101,6 +101,15 @@ export function resolveRoot(requested, allowlist) {
 /**
  * Join a relative path onto a canonical root and guarantee the result
  * stays inside it. Absolute inputs and `..` escapes throw 403.
+ *
+ * Two checks, because a lexical check alone is not enough:
+ *   1. lexical — path.resolve + isWithin catches `..` and absolute paths
+ *   2. realpath — resolve symlinks on the FINAL path and re-check, so a
+ *      symlink planted inside an allowlisted root that points outside it
+ *      (e.g. `project/passwd -> /etc/passwd`) can't be used to read out.
+ * The realpath is best-effort for the not-yet-existing case: if the file
+ * doesn't exist we realpath its parent directory and re-join the basename,
+ * which still catches a symlinked parent escaping the root.
  */
 export function safeJoin(rootReal, rel) {
   if (typeof rel !== 'string' || !rel) {
@@ -109,11 +118,38 @@ export function safeJoin(rootReal, rel) {
   if (path.isAbsolute(rel)) {
     throw forbidden('File paths must be relative to the project root.');
   }
-  const joined = path.resolve(rootReal, rel);
-  if (!isWithin(rootReal, joined)) {
+  // Normalise the root itself too (callers pass an already-real path, but
+  // be defensive so the isWithin comparison is apples-to-apples).
+  let rootCanon = rootReal;
+  try {
+    rootCanon = realpathSync(rootReal);
+  } catch {
+    /* keep the given root */
+  }
+
+  const joined = path.resolve(rootCanon, rel);
+  if (!isWithin(rootCanon, joined)) {
     throw forbidden('That file path escapes the project root.');
   }
-  return joined;
+
+  // Resolve symlinks on the final target (or its parent, if the leaf is
+  // absent) and re-verify containment.
+  let real = joined;
+  try {
+    real = realpathSync(joined);
+  } catch {
+    // Leaf doesn't exist — canonicalise the parent directory instead.
+    try {
+      const realParent = realpathSync(path.dirname(joined));
+      real = path.join(realParent, path.basename(joined));
+    } catch {
+      /* parent also absent — the read will just 404; lexical check stands */
+    }
+  }
+  if (!isWithin(rootCanon, real)) {
+    throw forbidden('That file path resolves outside the project root.');
+  }
+  return real;
 }
 
 export { isWithin };

@@ -42,7 +42,7 @@ Env vars:
 | `ATELIER_TOKEN` | sidecar + vite | Shared secret. Sidecar prints one on boot if unset; Vite injects it on the `/api` proxy so the browser never holds it. |
 | `VITE_HOST` | app | `local` selects the sidecar host; unset = mock. |
 
-**Security posture.** The sidecar binds `127.0.0.1` only, requires the token header, and confines every read and git call to `ATELIER_ROOTS` (paths are `realpath`-resolved; `..` and absolute inputs are rejected). Git runs through `execFile` with argument arrays — never a shell string. Branch creation checks for a dirty tree first and **never auto-stashes**; the only filesystem mutation in the whole app is the opt-in `git checkout -b` you trigger yourself. Everything else — analysis, propose, the dry-run diff, QA — is read-only.
+**Security posture.** The sidecar binds `127.0.0.1` only, requires the token header, and confines every read and git call to `ATELIER_ROOTS` (paths are `realpath`-resolved — including symlinks planted inside a root — and `..` / absolute inputs are rejected). Git runs through `execFile` with argument arrays — never a shell string. Branch creation checks for a dirty tree first and **never auto-stashes**; the only filesystem mutation Atelier itself performs is the opt-in `git checkout -b` you trigger yourself. Analysis, propose, the dry-run diff and the report are all read-only. The one caveat: the QA stage runs *your project's own* `typecheck` / `lint` / `test` scripts, so whatever those scripts do (e.g. a build writing to `dist/`) will happen — that's the project acting, not Atelier, and it only runs when you reach the verification stage.
 
 Host tests (any OS with git + node):
 

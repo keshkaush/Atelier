@@ -267,6 +267,10 @@ export function useWorkspace(): WorkspaceState {
   const confirmBranch = useCallback(async (choice: BranchChoice) => {
     const s = stateRef.current;
     const attached = s.attached;
+    // Defense-in-depth: this is the only mutating call in the app, so guard
+    // it on the stage itself (not just on which button the UI renders). A
+    // stray/stale call from any other stage is a no-op.
+    if (s.stage !== 'branch-prep') return;
     if (!attached || choice.mode !== 'create' || !choice.name) return;
 
     const my = ++runId.current;

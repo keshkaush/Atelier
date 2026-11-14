@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, realpathSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -180,6 +180,33 @@ test('safeJoin blocks .. escapes and absolute paths', () => {
   assert.doesNotThrow(() => safeJoin(allowed, 'src/App.tsx'));
   assert.throws(() => safeJoin(allowed, '../etc/passwd'), /escapes the project root/i);
   assert.throws(() => safeJoin(allowed, path.join(allowed, 'abs.txt')), /relative/i);
+});
+
+test('safeJoin blocks a symlink inside the root that points outside it', () => {
+  // A symlink planted inside an allowlisted root (e.g. by an untrusted
+  // clone) that escapes to a file outside — must be refused after realpath.
+  const allowed = realpathSync(makeRepo());
+  const secretDir = mkdtempSync(path.join(tmpdir(), 'atelier-secret-'));
+  const secret = path.join(secretDir, 'passwd');
+  writeFileSync(secret, 'root:x:0:0\n');
+  const link = path.join(allowed, 'escape');
+  try {
+    symlinkSync(secret, link);
+  } catch {
+    return; // symlinks unsupported on this platform/user — skip
+  }
+  assert.throws(() => safeJoin(allowed, 'escape'), /outside the project root/i);
+});
+
+test('safeJoin allows a symlink that stays inside the root', () => {
+  const allowed = realpathSync(makeRepo());
+  const link = path.join(allowed, 'alias');
+  try {
+    symlinkSync(path.join(allowed, 'src', 'App.tsx'), link);
+  } catch {
+    return; // symlinks unsupported — skip
+  }
+  assert.doesNotThrow(() => safeJoin(allowed, 'alias'));
 });
 
 /* ---------------------------------------------------------- */
