@@ -2,10 +2,14 @@
 
 An agentic design studio. You brief one **Design Lead**, who splits the work across five specialist desks and reviews what they return.
 
-**Run console** (home): write a brief, dispatch it, watch the desks work.
-**The floor** (pop-up): the org chart, studio stats, and roster.
+Two peer modes, switched from the top bar:
 
-> The demo is scripted. It runs offline with no model. To make it live, attach a model — see below.
+- **Project workspace** (home): point the studio at a *real project directory*, describe a change, and get a versioned high-level design proposal to approve, revise, or switch — analysis-first, nothing written until you approve.
+- **Brief console**: write a brief, dispatch it, watch the desks work — the scripted simulation.
+
+**The floor** (pop-up): the org chart, studio stats, and roster — reachable from both modes.
+
+> The demo is scripted and the workspace ships against a mock host. Both run offline with no model and no filesystem access. To make either live, attach a model and (for the workspace) a real host — see below.
 
 ## Run
 
@@ -57,18 +61,39 @@ To make the desks generate real output, call `complete()` in `src/lib/model.ts` 
 
 > `VITE_` values are exposed in the browser bundle. For anything public, proxy the request through a small backend so the key stays server-side.
 
+## Project workspace
+
+The project-aware flow runs a five-step journey, all *before* anything is built:
+
+1. **Brief + attach** — describe the change and attach a project directory.
+2. **Analyse** — structural detection of framework, styling, components, tokens and themes, each claim backed by the files that prove it. Dependencies, build output, lockfiles, secrets and binaries are never crawled (the ignored tally is shown explicitly).
+3. **Decompose** — the brief split into workstreams, one per desk, grounded in the real paths each will touch.
+4. **Propose** — a versioned high-level design proposal: requirement understanding, proposed design, a schematic wireframe preview, and implementation impact.
+5. **Decide** — approve, revise (new version), choose an alternative (new version), or cancel. Approve lands on a holding card; branch prep, implementation and QA are the next milestone.
+
+**Host seam.** A browser can't read a folder or run `git`, so all filesystem/git access goes through one interface — `HostBridge` in `src/lib/host/`. Milestone 1 ships `MockHost` (canned sample projects) so the whole journey runs offline. Because the analysis engine (`src/lib/project/analyze.ts`) consumes only a `DirListing`, the same code runs unchanged against a real folder once a local adapter (Node companion / Tauri) implements the same interface — swap the export in `src/lib/host/index.ts`.
+
+**Wiring a real model.** `src/lib/project/decompose.ts` and `proposal.ts` are deterministic by default (offline, instant). To generate proposals with a model instead, call `complete()` from `src/lib/model.ts` with the Lead's mandate as the system prompt and the brief + analysis as the user message, and parse its JSON into `Workstream[]` / `DesignProposal`. The seam is already shaped for it.
+
 ## Structure
 
 ```
 src/
-  App.tsx                shell
-  views/RunConsole.tsx    home: brief, board, activity log
-  views/FloorModal.tsx    the floor pop-up
-  components/OrgChart.tsx org chart
-  lib/studio.ts           desks, copy, run script
-  lib/useRunner.ts        run simulation  (wire real calls here)
-  lib/model.ts            OpenAI-compatible adapter
-  index.css               design system
+  App.tsx                    shell + mode switch
+  views/RunConsole.tsx        brief console: brief, board, activity log
+  views/WorkspaceView.tsx     project workspace: stage router + stepper
+  views/workspace/*           StageInput, Analyze, Decompose, Proposal, Approved
+  views/FloorModal.tsx        the floor pop-up
+  components/OrgChart.tsx     org chart
+  components/FileTree.tsx     project file tree (dimmed ignores)
+  components/ModeSwitch.tsx   console ⇄ workspace
+  lib/studio.ts               desks, copy, run script
+  lib/useRunner.ts            run simulation  (wire real calls here)
+  lib/model.ts                OpenAI-compatible adapter
+  lib/host/                   HostBridge seam + MockHost + sample projects
+  lib/project/                analyze.ts, decompose.ts, proposal.ts (pure)
+  lib/workspace/              useWorkspace.ts state machine
+  index.css                   design system
 ```
 
 ## Design

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { DESKS, WHO_LABEL, PRESETS, type Phase } from '../lib/studio';
 import { useRunner } from '../lib/useRunner';
 import { IconArrow, IconRestart, IconNetwork } from '../components/Icons';
-import { FloorModal } from './FloorModal';
 
 const PHASE_LABEL: Record<Phase, string> = {
   queued: 'Queued',
@@ -18,9 +17,8 @@ function fmtClock(ms: number) {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export function RunConsole() {
+export function RunConsole({ onOpenFloor }: { onOpenFloor: () => void }) {
   const [brief, setBrief] = useState(PRESETS[0].brief);
-  const [floorOpen, setFloorOpen] = useState(false);
   const runner = useRunner(700);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -52,7 +50,7 @@ export function RunConsole() {
         </span>
         <button
           className="btn btn--ghost btn--sm runninghead__floor"
-          onClick={() => setFloorOpen(true)}
+          onClick={onOpenFloor}
           type="button"
         >
           <IconNetwork size={15} /> View the floor
@@ -238,8 +236,6 @@ export function RunConsole() {
           </div>
         </aside>
       </div>
-
-      {floorOpen && <FloorModal onClose={() => setFloorOpen(false)} />}
     </div>
   );
 }
