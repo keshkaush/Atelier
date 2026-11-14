@@ -241,3 +241,47 @@ test('verify runs a passing test script when present', async () => {
   assert.equal(r.steps.test.status, 'pass');
   assert.equal(r.steps.lint.status, 'skipped');
 });
+
+test('verify reports a failing script as fail, never unavailable', async () => {
+  // Regression: `ELIFECYCLE` in the npm output once matched the platform-error
+  // probe, which relabelled every genuinely failing script as 'unavailable'.
+  const dir = mkdtempSync(path.join(tmpdir(), 'atelier-verify3-'));
+  writeFileSync(
+    path.join(dir, 'package.json'),
+    JSON.stringify({ name: 'x', scripts: { test: 'node -e "process.exit(3)"' } }),
+  );
+  const r = await verify(dir, { timeoutMs: 20000 });
+  assert.equal(r.steps.test.status, 'fail');
+  assert.equal(r.steps.test.exitCode, 3);
+});
+
+test('verify launches the package manager on Windows', async () => {
+  // Regression: execFile('npm') is ENOENT on Windows (npm is a .cmd shim) and
+  // execFile('npm.cmd') is EINVAL, so every step falsely reported 'fail'.
+  if (process.platform !== 'win32') return;
+  const dir = mkdtempSync(path.join(tmpdir(), 'atelier-verify4-'));
+  writeFileSync(
+    path.join(dir, 'package.json'),
+    JSON.stringify({ name: 'x', scripts: { test: 'node -e "process.exit(0)"' } }),
+  );
+  const r = await verify(dir, { timeoutMs: 20000 });
+  assert.notEqual(r.steps.test.status, 'unavailable', r.steps.test.note ?? '');
+  assert.equal(r.steps.test.status, 'pass');
+});
+
+test('verify falls back to the local tsc binary, not `npm tsc`', async () => {
+  // Regression: the fallback built `npm tsc -b`, which npm parses as the
+  // unknown subcommand "tsc" and exits non-zero on every TS project without
+  // an explicit typecheck script.
+  const dir = mkdtempSync(path.join(tmpdir(), 'atelier-verify5-'));
+  mkdirSync(path.join(dir, 'node_modules', 'typescript', 'bin'), { recursive: true });
+  writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts: {} }));
+  writeFileSync(path.join(dir, 'tsconfig.json'), '{}');
+  // Stand-in for tsc: asserts it was invoked with -b and exits clean.
+  writeFileSync(
+    path.join(dir, 'node_modules', 'typescript', 'bin', 'tsc'),
+    'process.exit(process.argv.slice(2).join(",") === "-b" ? 0 : 9);\n',
+  );
+  const r = await verify(dir, { timeoutMs: 20000 });
+  assert.equal(r.steps.typecheck.status, 'pass');
+});

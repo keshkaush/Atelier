@@ -19,20 +19,48 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const MAX_OUTPUT = 6000;
+const IS_WIN = process.platform === 'win32';
 
-function run(cmd, args, cwd, timeout) {
+/**
+ * On Windows `npm`/`pnpm`/`yarn` are `.cmd` shims, and Node's execFile
+ * cannot launch them: the bare name is ENOENT (no PATHEXT lookup) and the
+ * `.cmd` path is EINVAL (CVE-2024-27980 hardening). Resolve the package
+ * manager's real JS entry point and run it under node instead. Falls back
+ * to a shell only when the CLI file can't be located next to the runtime —
+ * and even then every argument is a fixed literal, never user text.
+ */
+function pmLauncher(pm) {
+  if (!IS_WIN) return { cmd: pm, prefix: [], useShell: false };
+  const globalModules = path.join(path.dirname(process.execPath), 'node_modules');
+  const cli = {
+    npm: path.join(globalModules, 'npm', 'bin', 'npm-cli.js'),
+    pnpm: path.join(globalModules, 'pnpm', 'bin', 'pnpm.cjs'),
+    yarn: path.join(globalModules, 'yarn', 'bin', 'yarn.js'),
+  }[pm];
+  if (cli && existsSync(cli)) return { cmd: process.execPath, prefix: [cli], useShell: false };
+  // Last resort: let cmd.exe resolve the shim. Args below are literals.
+  return { cmd: pm, prefix: [], useShell: true };
+}
+
+function run(cmd, args, cwd, timeout, useShell = false) {
   return new Promise((resolve) => {
     execFile(
       cmd,
       args,
-      { cwd, timeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true, shell: false },
+      { cwd, timeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true, shell: useShell },
       (err, stdout, stderr) => {
         // execFile sets err.killed on timeout, err.code on non-zero exit.
         const timedOut = Boolean(err && err.killed);
         const code = err ? (typeof err.code === 'number' ? err.code : 1) : 0;
+        // Spawn failures carry a string code ('ENOENT', 'EINVAL'); a script
+        // that exits non-zero carries a numeric one. The distinction matters:
+        // "we couldn't launch npm" must never be reported as "your tests failed".
+        const spawnFailed = Boolean(err && typeof err.code === 'string');
         resolve({
           code,
           timedOut,
+          spawnFailed,
+          spawnMessage: spawnFailed ? `${err.code}: ${err.message}` : undefined,
           stdout: stdout ?? '',
           stderr: stderr ?? '',
         });
@@ -66,21 +94,34 @@ function packageManager(rootReal) {
   return 'npm';
 }
 
-/** Which command actually typechecks this project? */
+/**
+ * Which command actually typechecks this project?
+ * Order: an explicit script, then the project's own tsc binary. Note the
+ * fallback runs tsc *directly* — `npm run tsc -b` would be parsed as the
+ * npm subcommand "tsc", which npm rejects ("Unknown command: tsc").
+ */
 function typecheckCommand(rootReal, scripts) {
   if (scripts.typecheck) return { label: 'typecheck', args: ['run', 'typecheck'] };
   if (scripts['type-check']) return { label: 'type-check', args: ['run', 'type-check'] };
-  // Fall back to a local tsc build if a tsconfig exists.
-  if (existsSync(path.join(rootReal, 'tsconfig.json'))) {
-    const localTsc = path.join(rootReal, 'node_modules', '.bin', 'tsc');
-    if (existsSync(localTsc)) return { label: 'tsc -b', direct: localTsc, args: ['-b'] };
-    return { label: 'tsc -b', npx: true, args: ['tsc', '-b'] };
+  if (!existsSync(path.join(rootReal, 'tsconfig.json'))) return null;
+
+  // Prefer the tsc JS entry point: it runs under node on every platform,
+  // whereas node_modules/.bin/tsc is a .cmd shim on Windows (unlaunchable
+  // from execFile) and a symlink to a shell script elsewhere.
+  const tscJs = path.join(rootReal, 'node_modules', 'typescript', 'bin', 'tsc');
+  if (existsSync(tscJs)) return { label: 'tsc -b', cmd: process.execPath, prefix: [tscJs], args: ['-b'] };
+
+  const tscShim = path.join(rootReal, 'node_modules', '.bin', IS_WIN ? 'tsc.cmd' : 'tsc');
+  if (existsSync(tscShim)) {
+    return IS_WIN
+      ? { label: 'tsc -b', cmd: tscShim, useShell: true, args: ['-b'] }
+      : { label: 'tsc -b', cmd: tscShim, args: ['-b'] };
   }
   return null;
 }
 
 function looksLikePlatformError(out) {
-  return /cannot find module .*rollup|@esbuild\/|\.node\b.*win32|win32-x64|ELIFECYCLE|Exec format error/i.test(
+  return /cannot find module .*rollup|@esbuild\/|\.node\b.*win32|win32-x64|Exec format error/i.test(
     out,
   );
 }
@@ -91,19 +132,30 @@ async function runStep(pm, spec, rootReal, timeoutMs) {
   }
   const started = Date.now();
   let result;
-  if (spec.direct) {
-    result = await run(spec.direct, spec.args, rootReal, timeoutMs);
-  } else if (spec.npx) {
-    result = await run(pm, spec.args, rootReal, timeoutMs);
+  if (spec.cmd) {
+    // Already a fully-resolved launcher (e.g. node + typescript/bin/tsc).
+    result = await run(spec.cmd, [...spec.prefix ?? [], ...spec.args], rootReal, timeoutMs, spec.useShell);
   } else {
-    result = await run(pm, spec.args, rootReal, timeoutMs);
+    const launcher = pmLauncher(pm);
+    result = await run(
+      launcher.cmd,
+      [...launcher.prefix, ...spec.args],
+      rootReal,
+      timeoutMs,
+      launcher.useShell,
+    );
   }
   const elapsedMs = Date.now() - started;
   const combined = `${result.stdout}\n${result.stderr}`;
 
   let status;
   let note;
-  if (result.timedOut) {
+  if (result.spawnFailed) {
+    // We never ran the command — that is our limitation, not a red X for the
+    // project. Report it honestly instead of inventing a 'fail'.
+    status = 'unavailable';
+    note = `Could not launch ${pm}: ${result.spawnMessage}`;
+  } else if (result.timedOut) {
     status = 'error';
     note = 'Timed out.';
   } else if (result.code === 0) {

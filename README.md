@@ -26,12 +26,25 @@ Requires Node 18+.
 The workspace can read a **real project directory** and run **real git** instead of the mock. This is a local Node sidecar; the browser never touches the filesystem directly.
 
 ```bash
-# terminal 1 — start the sidecar with the folders you want to expose
-ATELIER_ROOTS="/abs/path/to/your/project" npm run host
+# terminal 1 — start the sidecar with the folders you want to expose.
+# Pin a token here (otherwise the sidecar generates a random one on boot).
+ATELIER_TOKEN=dev ATELIER_ROOTS="/abs/path/to/your/project" npm run host
 
-# terminal 2 — start the app pointed at the local host
-VITE_HOST=local ATELIER_TOKEN=<token the sidecar printed> npm run dev
+# terminal 2 — start the app pointed at the local host.
+# ATELIER_TOKEN MUST match terminal 1, or the /api proxy is refused.
+VITE_HOST=local ATELIER_TOKEN=dev npm run dev
 ```
+
+Both must be running: the sidecar (`npm run host`) **and** the app with `VITE_HOST=local`. If the app can't reach the sidecar at boot it silently falls back to the mock host (with a console warning) and Step 1 shows the "Use a real folder" card — so a mock card usually means the sidecar isn't up, the token doesn't match, or `VITE_HOST` wasn't set.
+
+**Windows.** The `VAR=value cmd` prefix above is bash/Git Bash syntax. In PowerShell set the vars first:
+
+```powershell
+$env:ATELIER_TOKEN="dev"; $env:ATELIER_ROOTS="C:/Users/you/project"; npm run host
+$env:VITE_HOST="local"; $env:ATELIER_TOKEN="dev"; npm run dev
+```
+
+Use forward slashes (or doubled backslashes) in paths and keep the drive-letter case consistent with what the sidecar prints — a typed `c:/…` won't match an allowlisted `C:\…`.
 
 Env vars:
 
@@ -43,6 +56,13 @@ Env vars:
 | `VITE_HOST` | app | `local` selects the sidecar host; unset = mock. |
 
 **Security posture.** The sidecar binds `127.0.0.1` only, requires the token header, and confines every read and git call to `ATELIER_ROOTS` (paths are `realpath`-resolved — including symlinks planted inside a root — and `..` / absolute inputs are rejected). Git runs through `execFile` with argument arrays — never a shell string. Branch creation checks for a dirty tree first and **never auto-stashes**; the only filesystem mutation Atelier itself performs is the opt-in `git checkout -b` you trigger yourself. Analysis, propose, the dry-run diff and the report are all read-only. The one caveat: the QA stage runs *your project's own* `typecheck` / `lint` / `test` scripts, so whatever those scripts do (e.g. a build writing to `dist/`) will happen — that's the project acting, not Atelier, and it only runs when you reach the verification stage.
+
+**If attach fails**, check these in order:
+
+- *"Use a real folder… set `VITE_HOST=local`"* card still shows after you set it → the app fell back to the mock. The sidecar wasn't reachable at boot. Confirm terminal 1 logged `sidecar listening on http://127.0.0.1:5179` and that `VITE_HOST=local` was set on the `npm run dev` process, then reload.
+- *"That directory is outside the allowlist"* → the sidecar is up and answering, but the folder you named isn't inside any `ATELIER_ROOTS`. Root cards in Step 1 come straight from the allowlist, so this is either a manually typed path that doesn't match, or the folder you want wasn't passed at boot. Fix it by restarting the sidecar with that folder in `ATELIER_ROOTS` — retyping in the UI won't help. Then click **Re-check roots** (no dev-server restart needed).
+- *"Missing or invalid sidecar token"* (or requests silently failing) → `ATELIER_TOKEN` differs between the two terminals. Set the same value in both.
+- Diagnose the sidecar directly — health is unauthenticated and reports how many roots loaded: `curl -s http://127.0.0.1:5179/api/health` → `{"ok":true,"roots":1}`. `roots:0` means `ATELIER_ROOTS` never reached the sidecar (usually set in the wrong terminal, or PowerShell syntax used for a bash command). The sidecar also logs the canonical allowlisted paths on boot — attach one of *those*.
 
 Host tests (any OS with git + node):
 
@@ -133,7 +153,7 @@ src/
   lib/workspace/              machine.ts (pure reducer) + useWorkspace.ts + tests
   index.css                   design system
 server/                       zero-dep Node sidecar (the real local host)
-  index.mjs                   HTTP server: /api/list, git-status, branch, read, verify
+  index.mjs                   HTTP server: /api/health, roots, list, git-status, branch, read, verify
   lib/                        allowlist, walk, git, branch, verify
   test/                       host tests (throwaway /tmp git repos)
 scripts/test-machine.mjs      compile + run the reducer suite

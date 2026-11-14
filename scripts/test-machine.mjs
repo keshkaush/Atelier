@@ -12,13 +12,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
-const tsc = path.join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'tsc.cmd' : 'tsc');
+// Run TypeScript's JS entry point under node. The .bin/tsc shim is a .cmd on
+// Windows, which execFileSync refuses to launch (EINVAL, CVE-2024-27980).
+const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
 const out = mkdtempSync(path.join(tmpdir(), 'atelier-mtest-'));
 
 try {
   execFileSync(
-    tsc,
+    process.execPath,
     [
+      tsc,
       path.join(root, 'src/lib/workspace/machine.ts'),
       '--outDir', out,
       '--module', 'esnext',
