@@ -12,28 +12,30 @@ export function App() {
   return (
     <div className="shell">
       <div className="appbar">
+        {/* Triptych: switch left, wordmark dead-centre, floor right. Equal
+            side columns keep the wordmark on the bar's true centre, not on the
+            centre of whatever space the switch left over. */}
         <div className="appbar__inner">
-          <span className="appbar__brand mono">
-            Atelier <em>studio os</em>
-          </span>
           <ModeSwitch mode={mode} onChange={setMode} />
-          {/* Console has its own floor button in the running head; expose one
-              in the appbar only for the workspace so the floor stays reachable
-              from both modes. */}
-          {mode === 'workspace' && (
-            <button
-              className="btn btn--ghost btn--sm appbar__floor"
-              type="button"
-              onClick={() => setFloorOpen(true)}
-            >
-              <IconNetwork size={15} /> View the floor
-            </button>
-          )}
+          <span className="appbar__brand mono">
+            Atelier <em>— an agentic design studio</em>
+          </span>
+          {/* One floor entry for both modes — the console no longer carries
+              its own running head. */}
+          <button
+            className="btn btn--ghost btn--sm appbar__floor"
+            type="button"
+            aria-label="View the floor"
+            onClick={() => setFloorOpen(true)}
+          >
+            <IconNetwork size={15} />
+            <span className="appbar__floor-label">View the floor</span>
+          </button>
         </div>
       </div>
       <main className="page">
         {mode === 'console' ? (
-          <RunConsole onOpenFloor={() => setFloorOpen(true)} />
+          <RunConsole />
         ) : (
           <WorkspaceView />
         )}

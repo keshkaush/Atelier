@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { DESKS, WHO_LABEL, PRESETS, type Phase } from '../lib/studio';
 import { useRunner } from '../lib/useRunner';
-import { IconArrow, IconRestart, IconNetwork } from '../components/Icons';
+import { IconArrow, IconRestart } from '../components/Icons';
 
 const PHASE_LABEL: Record<Phase, string> = {
   queued: 'Queued',
@@ -17,7 +17,7 @@ function fmtClock(ms: number) {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export function RunConsole({ onOpenFloor }: { onOpenFloor: () => void }) {
+export function RunConsole() {
   const [brief, setBrief] = useState(PRESETS[0].brief);
   const runner = useRunner(700);
   const logRef = useRef<HTMLDivElement>(null);
@@ -44,19 +44,6 @@ export function RunConsole({ onOpenFloor }: { onOpenFloor: () => void }) {
 
   return (
     <div className="wrap">
-      <div className="runninghead">
-        <span>
-          <b>Atelier</b> — an agentic design studio
-        </span>
-        <button
-          className="btn btn--ghost btn--sm runninghead__floor"
-          onClick={onOpenFloor}
-          type="button"
-        >
-          <IconNetwork size={15} /> View the floor
-        </button>
-      </div>
-
       <header className="masthead">
         <div>
           <p className="masthead__kicker">A studio run by agents</p>
