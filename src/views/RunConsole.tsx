@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { DESKS, WHO_LABEL, PRESETS, type Phase } from '../lib/studio';
 import { useRunner } from '../lib/useRunner';
-import { IconArrow, IconRestart, IconNetwork } from '../components/Icons';
-import { FloorModal } from './FloorModal';
+import { IconArrow, IconRestart } from '../components/Icons';
 
 const PHASE_LABEL: Record<Phase, string> = {
   queued: 'Queued',
@@ -20,7 +19,6 @@ function fmtClock(ms: number) {
 
 export function RunConsole() {
   const [brief, setBrief] = useState(PRESETS[0].brief);
-  const [floorOpen, setFloorOpen] = useState(false);
   const runner = useRunner(700);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -46,19 +44,6 @@ export function RunConsole() {
 
   return (
     <div className="wrap">
-      <div className="runninghead">
-        <span>
-          <b>Atelier</b> — an agentic design studio
-        </span>
-        <button
-          className="btn btn--ghost btn--sm runninghead__floor"
-          onClick={() => setFloorOpen(true)}
-          type="button"
-        >
-          <IconNetwork size={15} /> View the floor
-        </button>
-      </div>
-
       <header className="masthead">
         <div>
           <p className="masthead__kicker">A studio run by agents</p>
@@ -238,8 +223,6 @@ export function RunConsole() {
           </div>
         </aside>
       </div>
-
-      {floorOpen && <FloorModal onClose={() => setFloorOpen(false)} />}
     </div>
   );
 }
