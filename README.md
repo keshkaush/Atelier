@@ -108,7 +108,25 @@ VITE_AI_API_KEY=<your openrouter key>
 VITE_AI_MODEL=meta-llama/llama-3.3-70b-instruct:free
 ```
 
-To make the desks generate real output, call `complete()` in `src/lib/model.ts` from `src/lib/useRunner.ts`, one call per desk. The desk's `mandate` in `src/lib/studio.ts` is its system prompt.
+The project workspace is already wired to the model. Three stages make a call —
+**decompose**, **propose** and **implement** — and each one treats the model as
+an enhancement rather than a dependency:
+
+| Stage | Model call | Falls back to |
+| --- | --- | --- |
+| Decompose | `decomposeWithModel` | `decompose` (rule-based splitter) |
+| Propose | `buildProposalWithModel` | `buildProposal` |
+| Implement | `generateImplementationWithModel` | `generateImplementation` |
+
+If no key is set, or the reply is empty / malformed / times out, the stage
+falls back to its deterministic path and the UI shows a **deterministic** note
+saying so. A stage never fails because a model did.
+
+The safety invariant: **the model never chooses a path.** Candidate files are
+computed locally (and filtered through the shared ignore manifest), the model
+is handed those files' current contents, and any path it returns that was not
+offered is discarded. Diffs are always re-derived locally from full file text —
+hunks are displayed, never parsed back into a file.
 
 > `VITE_` values are exposed in the browser bundle. For anything public, proxy the request through a small backend so the key stays server-side.
 

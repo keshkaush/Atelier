@@ -69,6 +69,14 @@ export function StageAnalyze({
         </p>
       </div>
 
+      {analysis.truncated && (
+        <p className="branch-note branch-note--warn" role="status">
+          The walk hit its entry cap before finishing, so this analysis covers a
+          prefix of the tree — later directories were never read. Anything below
+          is true of what was seen, not of the whole project.
+        </p>
+      )}
+
       <div className="runbar runbar--detect" aria-label="Analysis summary">
         <div className="runbar__seg">
           <span className="runbar__k">Stack</span>

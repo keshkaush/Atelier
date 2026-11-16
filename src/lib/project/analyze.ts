@@ -13,6 +13,7 @@
    ============================================================ */
 
 import type { DirEntry, DirListing } from '../host/types';
+import IGNORE_DIRS from './ignore-dirs.json';
 
 export type Confidence = 'high' | 'med' | 'low';
 
@@ -37,6 +38,8 @@ export interface ProjectAnalysis {
   dirs: number;
   /** Every entry the host returned, before ignoring. */
   total: number;
+  /** The host hit its entry cap — later directories were never read. */
+  truncated: boolean;
 }
 
 /* ----------------------------------------------------------------
@@ -47,16 +50,16 @@ export interface ProjectAnalysis {
    their tallies surfaced on the Analyze stage so the rule is visible.
    ---------------------------------------------------------------- */
 
+/* The directory names live in `ignore-dirs.json` so the sidecar's walker
+   and write guard read the exact same list. `.git` is added here because
+   it is a version-control concern, not a dependency/build one. */
 const IGNORE_DIR_REASONS: Record<string, string> = {
-  node_modules: 'dependencies',
+  ...Object.fromEntries(
+    Object.entries(IGNORE_DIRS).flatMap(([reason, names]) =>
+      names.map((name) => [name.toLowerCase(), reason]),
+    ),
+  ),
   '.git': 'version control',
-  dist: 'build output',
-  build: 'build output',
-  '.next': 'build output',
-  '.turbo': 'build output',
-  coverage: 'build output',
-  out: 'build output',
-  '.cache': 'build output',
 };
 
 const LOCKFILES = new Set([
@@ -85,7 +88,7 @@ const MEDIA_EXT = new Set([
 export function ignoreReason(e: DirEntry): string | null {
   const segs = e.path.split('/');
   for (const s of segs) {
-    const why = IGNORE_DIR_REASONS[s];
+    const why = IGNORE_DIR_REASONS[s.toLowerCase()];
     if (why) return why;
   }
   const name = e.name.toLowerCase();
@@ -305,5 +308,6 @@ export function analyze(listing: DirListing): ProjectAnalysis {
     scanned: files.length,
     dirs,
     total: listing.entries.length,
+    truncated: Boolean(listing.truncated),
   };
 }

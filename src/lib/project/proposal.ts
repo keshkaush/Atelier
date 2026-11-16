@@ -14,6 +14,8 @@
 
 import type { ProjectAnalysis } from './analyze';
 import type { Workstream } from './decompose';
+import { complete, type ModelConfig } from '../model';
+import { isRecord, parseJsonReply, str, strArray } from './modelJson';
 
 export type PreviewBlock =
   | { kind: 'heading'; text: string; level: 1 | 2 }
@@ -108,6 +110,122 @@ export function buildProposal(
     },
     workstreams,
     alternatives: alternativesFor(analysis),
+  };
+}
+
+/* ----------------------------------------------------------------
+   Model-backed proposal.
+
+   The model writes the parts that are actually prose — the requirement
+   reading, the design headline and body, the structure list, the impact
+   notes. Everything structural stays local: the preview wireframe is
+   derived from the brief by `previewFor`, the file list comes from the
+   workstreams, and the counts are computed here. A model cannot widen
+   the blast radius by claiming more files than the plan touches.
+   ---------------------------------------------------------------- */
+
+function validateProposal(
+  v: unknown,
+): {
+  requirement: { text: string; confidence: 'high' | 'med' | 'low' }[];
+  design: { headline: string; body: string; structure: string[] };
+  notes: string[];
+} {
+  if (!isRecord(v)) throw new Error('Expected a JSON object.');
+  const design = v.design;
+  if (!isRecord(design)) throw new Error('Missing "design".');
+  const headline = str(design.headline, 160);
+  const body = str(design.body, 1200);
+  const structure = strArray(design.structure, 10, 200);
+  if (!headline || !body || !structure || structure.length === 0) {
+    throw new Error('"design" needs a headline, a body and a structure list.');
+  }
+
+  if (!Array.isArray(v.requirement)) throw new Error('Missing "requirement".');
+  const requirement: { text: string; confidence: 'high' | 'med' | 'low' }[] = [];
+  for (const raw of v.requirement) {
+    if (!isRecord(raw)) continue;
+    const text = str(raw.text, 400);
+    if (!text) continue;
+    const c = str(raw.confidence, 10);
+    requirement.push({
+      text,
+      confidence: c === 'high' || c === 'med' || c === 'low' ? c : 'med',
+    });
+  }
+  if (requirement.length === 0) throw new Error('"requirement" was empty.');
+
+  return {
+    requirement,
+    design: { headline, body, structure },
+    notes: strArray(v.notes, 6, 300) ?? [],
+  };
+}
+
+/**
+ * Ask the model for the proposal prose. Throws on an unusable reply; the
+ * caller falls back to `buildProposal()`.
+ */
+export async function buildProposalWithModel(
+  cfg: ModelConfig,
+  brief: string,
+  analysis: ProjectAnalysis,
+  workstreams: Workstream[],
+  signal?: AbortSignal,
+): Promise<DesignProposal> {
+  const base = buildProposal(brief, analysis, workstreams);
+
+  const system = [
+    'You are the Design Lead of a five-desk design studio, writing the',
+    'high-level design proposal a client will approve or revise.',
+    'Reply with JSON only:',
+    '{ "requirement": [ { "text": "...", "confidence": "high|med|low" } ],',
+    '  "design": { "headline": "...", "body": "...", "structure": ["..."] },',
+    '  "notes": ["..."] }',
+    '',
+    'Rules:',
+    '- `requirement` restates what the brief actually asks for, as checkable claims.',
+    '- `design.headline` is one short line; `design.body` is two or three sentences.',
+    '- `design.structure` lists the work in order, one line per step.',
+    '- `notes` are honest caveats about impact. Do not claim files are modified.',
+    '- Be specific to THIS brief and THIS project. No generic filler.',
+  ].join('\n');
+
+  const user = [
+    `BRIEF:\n${brief.trim()}`,
+    '',
+    `PROJECT: ${analysis.summary}`,
+    `Framework: ${analysis.framework.map((f) => f.name).join(', ') || 'none detected'}`,
+    `Styling: ${analysis.styling.map((s) => s.name).join(', ') || 'none detected'}`,
+    `Themes: ${analysis.themes.map((t) => t.name).join(', ') || 'single theme'}`,
+    `Token sources: ${analysis.tokens.files.join(', ') || 'none'}`,
+    `Components: ${analysis.components.count}`,
+    '',
+    'WORKSTREAMS:',
+    ...workstreams.map(
+      (w) => `- ${w.desk}: ${w.title} — ${w.scope} (touches: ${w.touches.join(', ') || 'none'})`,
+    ),
+  ].join('\n');
+
+  const reply = await complete(
+    cfg,
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+    { temperature: 0.3, signal },
+  );
+
+  const parsed = parseJsonReply(reply, validateProposal);
+
+  return {
+    ...base,
+    requirement: parsed.requirement,
+    design: parsed.design,
+    impact: {
+      ...base.impact,
+      notes: parsed.notes.length ? parsed.notes : base.impact.notes,
+    },
   };
 }
 

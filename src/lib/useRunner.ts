@@ -3,6 +3,7 @@ import {
   buildScript,
   DESKS,
   type Beat,
+  type Deliverable,
   type DeskId,
   type Phase,
   type Who,
@@ -40,6 +41,8 @@ export interface Runner {
   log: LogLine[];
   progress: number;
   elapsed: number;
+  /** The assembled result — only set once the run completes. */
+  deliverable: Deliverable | null;
   start: (brief: string) => void;
   reset: () => void;
 }
@@ -61,8 +64,10 @@ export function useRunner(speedMs = 620): Runner {
   const [log, setLog] = useState<LogLine[]>([]);
   const [progress, setProgress] = useState(0);
   const [elapsed, setElapsed] = useState(0);
+  const [deliverable, setDeliverable] = useState<Deliverable | null>(null);
 
   const beatsRef = useRef<Beat[]>([]);
+  const deliverableRef = useRef<Deliverable | null>(null);
   const idxRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clockRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -79,6 +84,7 @@ export function useRunner(speedMs = 620): Runner {
   const reset = useCallback(() => {
     clearTimers();
     beatsRef.current = [];
+    deliverableRef.current = null;
     idxRef.current = 0;
     lineKey.current = 0;
     setStatus('idle');
@@ -88,14 +94,17 @@ export function useRunner(speedMs = 620): Runner {
     setLog([]);
     setProgress(0);
     setElapsed(0);
+    setDeliverable(null);
   }, []);
 
   const start = useCallback(
     (brief: string) => {
       clearTimers();
-      const script = buildScript();
-      script.brief = brief;
+      // The brief is the input to the script, not a label attached after
+      // the fact — this is what makes two briefs produce two runs.
+      const script = buildScript(brief);
       beatsRef.current = script.beats;
+      deliverableRef.current = script.deliverable;
       idxRef.current = 0;
       lineKey.current = 0;
       setStatus('running');
@@ -105,6 +114,7 @@ export function useRunner(speedMs = 620): Runner {
       setLog([]);
       setProgress(0);
       setElapsed(0);
+      setDeliverable(null);
       startAt.current = Date.now();
 
       clockRef.current = setInterval(() => {
@@ -119,6 +129,9 @@ export function useRunner(speedMs = 620): Runner {
           setStatus('complete');
           setProgress(100);
           setElapsed(Date.now() - startAt.current);
+          // Only now is there something to assemble — the log line that
+          // says "deliverables assembled" is finally true.
+          setDeliverable(deliverableRef.current);
           return;
         }
         const beat = beats[i];
@@ -173,6 +186,7 @@ export function useRunner(speedMs = 620): Runner {
     log,
     progress,
     elapsed,
+    deliverable,
     start,
     reset,
   };

@@ -45,6 +45,7 @@ import { TextDecoder } from 'node:util';
 
 import { badRequest, forbidden } from './errors.mjs';
 import { safeJoin } from './allowlist.mjs';
+import { ignoreReasonForPath } from './ignore.mjs';
 
 /** Keep a single apply to a review-sized batch. */
 export const MAX_EDITS = 8;
@@ -84,6 +85,22 @@ function checkPathSyntax(rel) {
   }
   if (parts.some((p) => p.toLowerCase() === '.git')) {
     throw forbidden('Refusing to write inside .git.');
+  }
+  // Dependencies and build output are never project source: a proposal that
+  // names one is a bug upstream, and writing there would corrupt a virtualenv
+  // or be silently wiped by the next build. Same manifest the walker uses.
+  const ignored = ignoreReasonForPath(rel);
+  if (ignored) {
+    throw forbidden(`Refusing to write inside ${ignored} — that path is not project source.`);
+  }
+  // Secrets are read-only by construction: a generated proposal has no
+  // business rewriting a key file, and a diff of one would leak it.
+  const leaf = parts[parts.length - 1].toLowerCase();
+  if (leaf === '.env' || (leaf.startsWith('.env.') && leaf !== '.env.example')) {
+    throw forbidden('Refusing to write an environment file.');
+  }
+  if (/\.(pem|key)$/i.test(leaf)) {
+    throw forbidden('Refusing to write a key file.');
   }
   return parts;
 }

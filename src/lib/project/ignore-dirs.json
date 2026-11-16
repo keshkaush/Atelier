@@ -1,0 +1,30 @@
+{
+  "dependencies": [
+    "node_modules",
+    "bower_components",
+    "jspm_packages",
+    "vendor",
+    ".venv",
+    "venv",
+    "site-packages",
+    ".tox",
+    ".nox",
+    "__pycache__"
+  ],
+  "build output": [
+    "dist",
+    "build",
+    "out",
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
+    ".turbo",
+    ".cache",
+    "coverage",
+    "htmlcov",
+    "target",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache"
+  ]
+}

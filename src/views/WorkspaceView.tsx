@@ -93,6 +93,13 @@ export function WorkspaceView() {
         </div>
       )}
 
+      {ws.modelNote && (
+        <p className="ws-note" role="status">
+          <span className="ws-note__label mono">deterministic</span>
+          {ws.modelNote}
+        </p>
+      )}
+
       {ws.stage === 'input' || ws.stage === 'analyzing' ? (
         <StageInput
           brief={ws.brief}
@@ -122,6 +129,9 @@ export function WorkspaceView() {
         <StageDecompose
           workstreams={ws.workstreams}
           busy={ws.busy}
+          pendingLabel={
+            ws.stage === 'decomposed' ? 'Drafting the proposal…' : 'Decomposing…'
+          }
           onBack={ws.backToAnalyzed}
           onNext={ws.runProposal}
         />
@@ -151,6 +161,7 @@ export function WorkspaceView() {
           busy={ws.busy}
           error={ws.error}
           canAdvance={ws.canAdvanceBranchPrep}
+          onChoiceChange={ws.setBranchChoice}
           onCreate={ws.confirmBranch}
           onSkip={ws.skipBranch}
           onBack={ws.backToProposal}

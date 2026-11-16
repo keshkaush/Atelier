@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { DESKS, WHO_LABEL, PRESETS, type Phase } from '../lib/studio';
 import { useRunner } from '../lib/useRunner';
+import { DeliverablePanel } from './DeliverablePanel';
 import { IconArrow, IconRestart } from '../components/Icons';
 
 const PHASE_LABEL: Record<Phase, string> = {
@@ -223,6 +224,8 @@ export function RunConsole() {
           </div>
         </aside>
       </div>
+
+      {runner.deliverable && <DeliverablePanel deliverable={runner.deliverable} />}
     </div>
   );
 }

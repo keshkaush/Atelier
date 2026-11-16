@@ -127,6 +127,12 @@ export interface WsState {
   applyResult?: ApplyResult;
   /** Stage 9 — the QA report from the host. */
   qa?: VerifyReport;
+  /**
+   * Set when a stage fell back to its deterministic path because the model
+   * was unavailable or returned something unusable. Non-fatal: the stage
+   * still produced output, but the user deserves to know which path ran.
+   */
+  modelNote?: string;
   error?: string;
 }
 
@@ -151,9 +157,10 @@ export type WsAction =
   | { type: 'ANALYSIS_OK'; listing: DirListing; analysis: ProjectAnalysis }
   | { type: 'ANALYSIS_FAIL'; error: string }
   | { type: 'BEGIN_DECOMPOSE' }
-  | { type: 'DECOMPOSE_OK'; workstreams: Workstream[] }
+  | { type: 'DECOMPOSE_OK'; workstreams: Workstream[]; note?: string }
   | { type: 'DECOMPOSE_FAIL'; error: string }
-  | { type: 'PROPOSAL_BUILT'; proposal: DesignProposal }
+  | { type: 'PROPOSAL_BUILT'; proposal: DesignProposal; note?: string }
+  | { type: 'PROPOSAL_FAIL'; error: string }
   | { type: 'PROPOSAL_APPEND'; proposal: DesignProposal }
   | { type: 'APPROVE' }
   | { type: 'CANCEL' }
@@ -169,7 +176,7 @@ export type WsAction =
   | { type: 'BACK_TO_PROPOSAL' }
   | { type: 'BACK_TO_BRANCH_PREP' }
   | { type: 'BEGIN_IMPLEMENT'; finalApprovedAt: number }
-  | { type: 'IMPLEMENT_OK'; plan: ImplementationPlanState }
+  | { type: 'IMPLEMENT_OK'; plan: ImplementationPlanState; note?: string }
   | { type: 'IMPLEMENT_FAIL'; error: string }
   | { type: 'SET_REVIEW_DECISION'; path: string; decision: 'accept' | 'skip' }
   | { type: 'SET_REVIEW_DECISIONS'; decisions: Record<string, 'accept' | 'skip'> }
@@ -232,11 +239,17 @@ export function workspaceReducer(state: WsState, action: WsAction): WsState {
 
     case 'BEGIN_DECOMPOSE':
       if (state.stage !== 'analyzed') return state;
-      return { ...state, stage: 'decomposing', error: undefined };
+      return { ...state, stage: 'decomposing', error: undefined, modelNote: undefined };
 
     case 'DECOMPOSE_OK':
       if (state.stage !== 'decomposing') return state;
-      return { ...state, stage: 'decomposed', workstreams: action.workstreams };
+      return {
+        ...state,
+        stage: 'decomposed',
+        workstreams: action.workstreams,
+        modelNote: action.note,
+        error: undefined,
+      };
 
     case 'DECOMPOSE_FAIL':
       if (state.stage !== 'decomposing') return state;
@@ -249,7 +262,16 @@ export function workspaceReducer(state: WsState, action: WsAction): WsState {
         stage: 'proposal',
         versions: [action.proposal],
         viewingVersion: null,
+        modelNote: action.note,
+        error: undefined,
       };
+
+    case 'PROPOSAL_FAIL':
+      // The proposal builder itself threw (a code bug, not a model failure
+      // — model failures are absorbed by `withFallback`). Stay on the
+      // decomposed stage so the user can retry the next step.
+      if (state.stage !== 'decomposed') return state;
+      return { ...state, error: action.error };
 
     case 'PROPOSAL_APPEND':
       // revise / alternative — the caller has already computed the new
@@ -335,6 +357,7 @@ export function workspaceReducer(state: WsState, action: WsAction): WsState {
         finalApprovedAt: action.finalApprovedAt,
         plan: undefined,
         error: undefined,
+        modelNote: undefined,
       };
 
     /* --- stage 8: implementation (dry-run) --------------------- */
@@ -346,6 +369,7 @@ export function workspaceReducer(state: WsState, action: WsAction): WsState {
         ...state,
         stage: 'review',
         plan: action.plan,
+        modelNote: action.note,
         reviewDecisions: Object.fromEntries(
           action.plan.diffs
             .filter((d) => d.status !== 'unchanged')
@@ -473,13 +497,19 @@ export function workspaceReducer(state: WsState, action: WsAction): WsState {
         pendingEdits: undefined,
         applyResult: undefined,
         error: undefined,
+        modelNote: undefined,
       };
 
     case 'BACK_TO_ANALYZED':
       // Step back from the decomposition review to the analysis report
       // without re-running analysis. Clears the decomposed workstreams.
       if (state.stage !== 'decomposed') return state;
-      return { ...state, stage: 'analyzed', workstreams: undefined };
+      return {
+        ...state,
+        stage: 'analyzed',
+        workstreams: undefined,
+        modelNote: undefined,
+      };
 
     case 'CANCEL':
     case 'RESET':

@@ -18,11 +18,15 @@ const riskDot = (r: Risk) =>
 export function StageDecompose({
   workstreams,
   busy,
+  pendingLabel = 'Decomposing…',
   onNext,
   onBack,
 }: {
   workstreams?: Workstream[];
   busy: boolean;
+  /** What the pending card says — the same stage covers the model call
+   *  that drafts the proposal, which is not "decomposing" any more. */
+  pendingLabel?: string;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -70,7 +74,7 @@ export function StageDecompose({
           <div className="ws ws--pending">
             <div className="ws__top">
               <span className="dot dot--working" />
-              <span className="ws__title">Decomposing…</span>
+              <span className="ws__title">{pendingLabel}</span>
             </div>
           </div>
         )}
