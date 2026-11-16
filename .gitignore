@@ -15,6 +15,13 @@ dist-ssr/
 *.log
 npm-debug.log*
 
+# local tooling output (browser snapshots, verification screenshots)
+.playwright-mcp/
+stage*-*.png
+
+# media pieces: large binaries, kept on disk but not in the app repo
+pieces/
+
 # editor / os
 .vscode/
 .idea/
