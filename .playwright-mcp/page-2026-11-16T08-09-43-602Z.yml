@@ -1,0 +1,77 @@
+- generic [ref=f4e3]:
+  - generic [ref=f4e5]:
+    - tablist "Studio mode" [ref=f4e6]:
+      - tab "Project workspace" [selected] [ref=f4e7] [cursor=pointer]
+      - tab "Brief console" [ref=f4e8] [cursor=pointer]
+    - generic [ref=f4e9]:
+      - text: Atelier
+      - emphasis [ref=f4e10]: — an agentic design studio
+    - button "View the floor" [ref=f4e11] [cursor=pointer]
+  - main [ref=f4e19]:
+    - generic [ref=f4e20]:
+      - generic [ref=f4e21]:
+        - generic [ref=f4e22]:
+          - paragraph [ref=f4e23]: Project-aware studio
+          - heading [level=1] [ref=f4e24]:
+            - text: Read the project.
+            - emphasis [ref=f4e25]: Propose
+            - text: the change. Then build.
+        - generic [ref=f4e26]:
+          - strong [ref=f4e27]: Analysis first
+          - text: nothing writtenuntil you confirmreview · apply · qa
+      - navigation "Progress" [ref=f4e28]:
+        - generic [ref=f4e29]:
+          - generic [ref=f4e30]: "01"
+          - generic [ref=f4e31]: Brief
+        - generic [ref=f4e32]:
+          - generic [ref=f4e33]: "02"
+          - generic [ref=f4e34]: Analyse
+        - generic [ref=f4e35]:
+          - generic [ref=f4e36]: "03"
+          - generic [ref=f4e37]: Decompose
+        - generic [ref=f4e38]:
+          - generic [ref=f4e39]: "04"
+          - generic [ref=f4e40]: Propose
+        - generic [ref=f4e41]:
+          - generic [ref=f4e42]: "05"
+          - generic [ref=f4e43]: Approve
+        - generic [ref=f4e44]:
+          - generic [ref=f4e45]: "06"
+          - generic [ref=f4e46]: Branch
+        - generic [ref=f4e47]:
+          - generic [ref=f4e48]: "07"
+          - generic [ref=f4e49]: Implement
+        - generic [ref=f4e50]:
+          - generic [ref=f4e51]: "08"
+          - generic [ref=f4e52]: Verify
+      - generic [ref=f4e53]:
+        - generic [ref=f4e54]:
+          - paragraph [ref=f4e55]: Step one — the brief
+          - heading [level=2] [ref=f4e56]:
+            - text: Brief the studio on a
+            - emphasis [ref=f4e57]: real
+            - text: project.
+          - paragraph [ref=f4e58]: Describe the change, then attach the project directory it lives in. The studio reads the project and proposes a plan — it touches nothing until you approve.
+        - generic [ref=f4e60]:
+          - generic [ref=f4e61]: What should change?
+          - textbox "What should change?" [ref=f4e62]:
+            - /placeholder: e.g. Redesign the onboarding flow into a 3-step wizard, keeping the current dark theme.
+        - generic [ref=f4e63]:
+          - generic [ref=f4e64]:
+            - generic [ref=f4e65]: Project directory
+            - generic [ref=f4e68]: local host
+          - generic [ref=f4e70]:
+            - button "OpenJarvis C:\\Users\\kesha\\OpenJarvis allowlisted root · click to attach" [ref=f4e72] [cursor=pointer]:
+              - generic [ref=f4e73]: OpenJarvis
+              - generic [ref=f4e74]: C:\Users\kesha\OpenJarvis
+              - generic [ref=f4e75]: allowlisted root · click to attach
+            - generic [ref=f4e76]:
+              - generic [ref=f4e77]: Or enter an absolute project path
+              - generic [ref=f4e78]:
+                - textbox "Or enter an absolute project path" [ref=f4e79]:
+                  - /placeholder: /Users/you/code/your-project
+                - button "Attach" [disabled] [ref=f4e80]
+              - paragraph [ref=f4e81]: The folder must be one the sidecar was started with. Anything else is refused — the host never reads outside its allowlist.
+        - generic [ref=f4e82]:
+          - generic [ref=f4e83]: Attach a project to continue.
+          - button "Analyse project" [disabled] [ref=f4e84]

@@ -24,8 +24,16 @@ type LocalAction =
   | { type: 'ACK_DIRTY'; ack: boolean }
   | { type: 'RESEED'; brief: string };
 
-function init(brief: string): LocalState {
-  return { mode: 'skip', name: slugToBranch(brief), nameEdited: false, ackDirty: false };
+function init(seed: { brief: string; branch?: BranchChoice }): LocalState {
+  const b = seed.branch;
+  const isCreate = b?.mode === 'create';
+  return {
+    mode: isCreate ? 'create' : 'skip',
+    // A stored name is by definition user-edited; otherwise slug the brief.
+    name: isCreate && b?.name ? b.name : slugToBranch(seed.brief),
+    nameEdited: Boolean(isCreate && b?.name),
+    ackDirty: Boolean(b?.dirtyAcknowledged),
+  };
 }
 
 function reducer(s: LocalState, a: LocalAction): LocalState {
@@ -60,6 +68,7 @@ export function StageBranchPrep({
   busy,
   error,
   canAdvance,
+  onChoiceChange,
   onCreate,
   onSkip,
   onBack,
@@ -71,11 +80,13 @@ export function StageBranchPrep({
   busy: boolean;
   error?: string;
   canAdvance: boolean;
+  /** Mirror the in-progress decision into the store so the gate can see it. */
+  onChoiceChange: (choice: BranchChoice) => void;
   onCreate: (choice: BranchChoice) => void;
   onSkip: (choice: BranchChoice) => void;
   onBack: () => void;
 }) {
-  const [local, dispatch] = useReducer(reducer, brief, init);
+  const [local, dispatch] = useReducer(reducer, { brief, branch }, init);
 
   // Re-seed the name when the brief changes (never clobbers a custom name).
   useEffect(() => {
@@ -108,6 +119,13 @@ export function StageBranchPrep({
     }),
     [local.mode, local.name, local.ackDirty, current, dirty],
   );
+
+  /* The gate (`canAdvance`) reads the *store's* choice, not this form's
+     local state — so every edit has to round-trip up. Without this the
+     store stays at the seeded default and the buttons never unlock. */
+  useEffect(() => {
+    onChoiceChange(buildChoice);
+  }, [buildChoice, onChoiceChange]);
 
   return (
     <div className="stage stage--branch">
@@ -235,6 +253,18 @@ export function StageBranchPrep({
             : `Stay on ${current ?? 'the current branch'} — no branch created; final approval next.`}
         </span>
       </div>
+
+      {!canSubmit && !busy && (
+        <p className="branch-note branch-note--warn" role="status">
+          {blockedByRepo
+            ? 'This folder is not a git repository — there is no branch to create. Turn the option off to continue.'
+            : blockedByName
+              ? 'Enter a valid branch name to continue.'
+              : blockedByAck
+                ? 'Acknowledge that your uncommitted changes will carry onto the new branch.'
+                : 'The working tree has uncommitted changes — tick the acknowledgement to continue.'}
+        </p>
+      )}
 
       <div className="stage__actions">
         <button className="btn btn--ghost" type="button" onClick={onBack} disabled={busy}>

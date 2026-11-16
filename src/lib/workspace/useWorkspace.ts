@@ -24,16 +24,19 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { host } from '../host';
 import type { ApplyResult, DirListing, FileEdit, VerifyReport, RootCandidate } from '../host/types';
 import { analyze, type ProjectAnalysis } from '../project/analyze';
-import { decompose, type Workstream } from '../project/decompose';
+import { decompose, decomposeWithModel, type Workstream } from '../project/decompose';
 import {
   buildProposal,
+  buildProposalWithModel,
   chooseAlternative,
   revise,
   type Alternative,
   type Decision,
   type DesignProposal,
 } from '../project/proposal';
-import { generateImplementation } from '../project/implement';
+import { generateImplementation, generateImplementationWithModel } from '../project/implement';
+import { configFromEnv } from '../model';
+import { withFallback } from '../project/modelJson';
 import {
   acceptedDiffs,
   canAdvanceBranchPrep,
@@ -100,6 +103,8 @@ export interface WorkspaceState {
   qa?: VerifyReport;
   /** Derived overall QA verdict. */
   qaVerdict: QaVerdict;
+  /** Why the last model-backed stage fell back to its deterministic path. */
+  modelNote?: string;
   error?: string;
 
   setBrief: (b: string) => void;
@@ -109,7 +114,7 @@ export interface WorkspaceState {
   detach: () => void;
   runAnalysis: () => Promise<void>;
   runDecompose: () => Promise<void>;
-  runProposal: () => void;
+  runProposal: () => Promise<void>;
   decide: (d: Decision) => void;
   viewVersion: (version: number) => void;
   backToInput: () => void;
@@ -159,6 +164,12 @@ export function useWorkspace(): WorkspaceState {
   // Guards against overlapping async runs / late results after reset.
   const runId = useRef(0);
 
+  // The proposal stage has no dedicated machine stage (it goes
+  // decomposed → proposal in one dispatch), so its model call needs its
+  // own in-flight flag to keep the Next button from firing twice.
+  const [proposing, setProposing] = useState(false);
+  const proposingRun = useRef(0);
+
   // Host metadata: which folders can be attached. Loads once on mount (and
   // if the host is swapped by resolveHost, roots just stay []). This is not
   // journey state, so it lives outside the pure reducer.
@@ -203,10 +214,21 @@ export function useWorkspace(): WorkspaceState {
     }
   }, []);
 
-  const detach = useCallback(() => {
+  /**
+   * Abandon the proposal stage: bump the run id so a late model reply is
+   * dropped, and release the in-flight flag. The flag must be cleared here
+   * because the abandoned run's `finally` will no longer match the id.
+   */
+  const cancelProposal = useCallback(() => {
     runId.current++;
-    dispatch({ type: 'DETACH' });
+    proposingRun.current = 0;
+    setProposing(false);
   }, []);
+
+  const detach = useCallback(() => {
+    cancelProposal();
+    dispatch({ type: 'DETACH' });
+  }, [cancelProposal]);
 
   const runAnalysis = useCallback(async () => {
     const attached = stateRef.current.attached;
@@ -241,10 +263,20 @@ export function useWorkspace(): WorkspaceState {
     const my = ++runId.current;
     dispatch({ type: 'BEGIN_DECOMPOSE' });
     try {
-      await tick(680);
+      const cfg = configFromEnv();
+      const outcome = cfg
+        ? await withFallback(
+            'decompose',
+            () => decomposeWithModel(cfg, brief, analysis, listing),
+            () => decompose(brief, analysis, listing),
+          )
+        : {
+            value: decompose(brief, analysis, listing),
+            source: 'fallback' as const,
+            note: 'No model key configured — the deterministic splitter ran instead.',
+          };
       if (my !== runId.current) return;
-      const workstreams = decompose(brief, analysis, listing);
-      dispatch({ type: 'DECOMPOSE_OK', workstreams });
+      dispatch({ type: 'DECOMPOSE_OK', workstreams: outcome.value, note: outcome.note });
     } catch (e) {
       if (my !== runId.current) return;
       dispatch({
@@ -254,16 +286,49 @@ export function useWorkspace(): WorkspaceState {
     }
   }, []);
 
-  const runProposal = useCallback(() => {
+  const runProposal = useCallback(async () => {
     const { analysis, workstreams, brief } = stateRef.current;
     if (!analysis || !workstreams) return;
-    const proposal = buildProposal(brief, analysis, workstreams);
-    dispatch({ type: 'PROPOSAL_BUILT', proposal });
+    const my = ++runId.current;
+    // The proposal stage has no machine stage of its own, so the in-flight
+    // flag is owned here. Only the newest run may clear it — an older run
+    // finishing late must not un-busy a newer one.
+    proposingRun.current = my;
+    setProposing(true);
+    try {
+      // `withFallback` absorbs model failures; the deterministic builder is
+      // the floor. Nothing here is allowed to reject, because the caller is
+      // a click handler and a rejection would go unhandled.
+      const cfg = configFromEnv();
+      const outcome = cfg
+        ? await withFallback(
+            'proposal',
+            () => buildProposalWithModel(cfg, brief, analysis, workstreams),
+            () => buildProposal(brief, analysis, workstreams),
+          )
+        : {
+            value: buildProposal(brief, analysis, workstreams),
+            source: 'fallback' as const,
+            note: 'No model key configured — the deterministic proposal ran instead.',
+          };
+      if (my !== runId.current) return;
+      dispatch({ type: 'PROPOSAL_BUILT', proposal: outcome.value, note: outcome.note });
+    } catch (e) {
+      // Only reachable if the deterministic builder itself throws, which
+      // would be a code bug — surface it rather than swallow it.
+      if (my !== runId.current) return;
+      dispatch({
+        type: 'PROPOSAL_FAIL',
+        error: e instanceof Error ? e.message : 'Could not build the proposal.',
+      });
+    } finally {
+      if (proposingRun.current === my) setProposing(false);
+    }
   }, []);
 
   const decide = useCallback((d: Decision) => {
     if (d.kind === 'cancel') {
-      runId.current++;
+      cancelProposal();
       dispatch({ type: 'CANCEL' });
       return;
     }
@@ -283,7 +348,7 @@ export function useWorkspace(): WorkspaceState {
       next = chooseAlternative(current, alt);
     }
     dispatch({ type: 'PROPOSAL_APPEND', proposal: next });
-  }, []);
+  }, [cancelProposal]);
 
   const viewVersion = useCallback((version: number) => {
     dispatch({ type: 'VIEW_VERSION', version });
@@ -389,16 +454,29 @@ export function useWorkspace(): WorkspaceState {
       // Small beat so "implementing" reads as work, not a flash.
       await tick(400);
       if (my !== runId.current) return;
-      // Deterministic re-derive of the plan inputs if a back-nav dropped
-      // them (defensive): workstreams come from the proposal otherwise.
+      // Re-derive the plan inputs if a back-nav dropped them (defensive):
+      // workstreams come from the proposal, else the deterministic split.
       const streams: Workstream[] =
         workstreams ??
         s.versions[s.versions.length - 1]?.workstreams ??
         (analysis && listing ? decompose(brief, analysis, listing) : []);
-      const implPlan = await generateImplementation(host, attached.id, brief, streams);
+      const cfg = configFromEnv();
+      const outcome = cfg
+        ? await withFallback(
+            'implement',
+            () => generateImplementationWithModel(cfg, host, attached.id, brief, streams),
+            () => generateImplementation(host, attached.id, brief, streams),
+          )
+        : {
+            value: await generateImplementation(host, attached.id, brief, streams),
+            source: 'fallback' as const,
+            note: 'No model key configured — used the deterministic dry run.',
+          };
       if (my !== runId.current) return;
+      const implPlan = outcome.value;
       dispatch({
         type: 'IMPLEMENT_OK',
+        note: outcome.note,
         plan: {
           diffs: implPlan.diffs,
           // The write payloads travel with the plan: review shows diffs, but
@@ -522,9 +600,9 @@ export function useWorkspace(): WorkspaceState {
   }, []);
 
   const reset = useCallback(() => {
-    runId.current++;
+    cancelProposal();
     dispatch({ type: 'RESET' });
-  }, []);
+  }, [cancelProposal]);
 
   return {
     stage: state.stage,
@@ -550,6 +628,7 @@ export function useWorkspace(): WorkspaceState {
     hasDiskWrites: hasDiskWrites(state.applyResult),
     qa: state.qa,
     qaVerdict: qaVerdict(state),
+    modelNote: state.modelNote,
     error: state.error,
     setBrief,
     attach,
@@ -577,6 +656,6 @@ export function useWorkspace(): WorkspaceState {
     backFromApply,
     backToReview,
     reset,
-    busy: isBusy(state),
+    busy: isBusy(state) || proposing,
   };
 }

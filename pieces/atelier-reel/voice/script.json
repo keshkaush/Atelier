@@ -1,0 +1,48 @@
+{
+ "lead": 0.15,
+ "tail": 0.6,
+ "lines": [
+  {
+   "id": "hook",
+   "text": "Five AI designers read your real project, then ask before touching anything.",
+   "after": 0.12,
+   "file": "hook.wav"
+  },
+  {
+   "id": "folders",
+   "text": "You point it at a folder on your laptop. It reads the actual code.",
+   "after": 0.12,
+   "file": "folders.wav"
+  },
+  {
+   "id": "desks",
+   "text": "Each desk takes a pass, and you get one proposed change.",
+   "after": 0.12,
+   "file": "desks.wav"
+  },
+  {
+   "id": "design",
+   "text": "And it looks like a design studio, not another chat box.",
+   "after": 0.12,
+   "file": "design.wav"
+  },
+  {
+   "id": "catch",
+   "text": "The catch: it's my personal project, so expect rough edges.",
+   "after": 0.12,
+   "file": "catch.wav"
+  },
+  {
+   "id": "free",
+   "text": "And get this. It runs on your machine, and costs nothing.",
+   "after": 0.12,
+   "file": "free.wav"
+  },
+  {
+   "id": "cta",
+   "text": "For the repo, comment STUDIO.",
+   "after": 0.1,
+   "file": "cta.wav"
+  }
+ ]
+}

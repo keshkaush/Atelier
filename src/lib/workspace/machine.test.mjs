@@ -25,7 +25,7 @@ import {
 const run = (s, ...actions) => actions.reduce(workspaceReducer, s);
 
 const listing = { root: 'demo', entries: [] };
-const analysis = { framework: [], styling: [], components: { count: 0, samples: [] }, tokens: { files: [], signals: [] }, themes: [], ignored: { count: 0, reasons: {} }, summary: '', scanned: 0, dirs: 0, total: 0 };
+const analysis = { framework: [], styling: [], components: { count: 0, samples: [] }, tokens: { files: [], signals: [] }, themes: [], ignored: { count: 0, reasons: {} }, summary: '', scanned: 0, dirs: 0, total: 0, truncated: false };
 const workstreams = [];
 const proposal = {
   version: 1,
@@ -281,6 +281,115 @@ test('IMPLEMENT_FAIL returns to the final-approve gate with an error', () => {
   s = run(s, { type: 'IMPLEMENT_FAIL', error: 'read failed' });
   assert.equal(s.stage, 'final-approve');
   assert.equal(s.error, 'read failed');
+});
+
+/* ---------------------------------------------------------- */
+/* model fallback notes                                        */
+/* ---------------------------------------------------------- */
+
+test('a fallback note rides through decompose → proposal → implement', () => {
+  const note = 'Model request failed (429).';
+  let s = run(
+    initialState,
+    attached(),
+    { type: 'BEGIN_ANALYSIS' },
+    { type: 'ANALYSIS_OK', listing, analysis },
+    { type: 'BEGIN_DECOMPOSE' },
+    { type: 'DECOMPOSE_OK', workstreams, note },
+  );
+  assert.equal(s.stage, 'decomposed');
+  assert.equal(s.modelNote, note, 'decompose note is kept for the UI');
+
+  s = run(s, { type: 'PROPOSAL_BUILT', proposal, note: 'No model key configured.' });
+  assert.equal(s.stage, 'proposal');
+  assert.equal(s.modelNote, 'No model key configured.', 'the latest stage wins');
+
+  s = run(
+    s,
+    { type: 'APPROVE' },
+    { type: 'OPEN_BRANCH_PREP' },
+    { type: 'BRANCH_PREP_OK', choice: { mode: 'skip' } },
+    { type: 'BEGIN_IMPLEMENT', finalApprovedAt: 1 },
+    { type: 'IMPLEMENT_OK', plan, note: 'Model returned no usable edits.' },
+  );
+  assert.equal(s.stage, 'review');
+  assert.equal(s.modelNote, 'Model returned no usable edits.');
+});
+
+test('a clean model run leaves no fallback note', () => {
+  let s = run(
+    initialState,
+    attached(),
+    { type: 'BEGIN_ANALYSIS' },
+    { type: 'ANALYSIS_OK', listing, analysis },
+    { type: 'BEGIN_DECOMPOSE' },
+    { type: 'DECOMPOSE_OK', workstreams },
+    { type: 'PROPOSAL_BUILT', proposal },
+  );
+  assert.equal(s.modelNote, undefined);
+  s = run(
+    s,
+    { type: 'APPROVE' },
+    { type: 'OPEN_BRANCH_PREP' },
+    { type: 'BRANCH_PREP_OK', choice: { mode: 'skip' } },
+    { type: 'BEGIN_IMPLEMENT', finalApprovedAt: 1 },
+    { type: 'IMPLEMENT_OK', plan },
+  );
+  assert.equal(s.modelNote, undefined);
+});
+
+test('the note never leaks onto a stage that has no output for it', () => {
+  // A stale note from decomposition must not survive a step back.
+  let s = run(
+    initialState,
+    attached(),
+    { type: 'BEGIN_ANALYSIS' },
+    { type: 'ANALYSIS_OK', listing, analysis },
+    { type: 'BEGIN_DECOMPOSE' },
+    { type: 'DECOMPOSE_OK', workstreams, note: 'old note' },
+  );
+  assert.equal(s.modelNote, 'old note');
+  s = run(s, { type: 'BACK_TO_ANALYZED' });
+  assert.equal(s.stage, 'analyzed');
+  assert.equal(s.modelNote, undefined);
+});
+
+test('re-running a stage clears the previous note before the new one lands', () => {
+  let s = run(
+    initialState,
+    attached(),
+    { type: 'BEGIN_ANALYSIS' },
+    { type: 'ANALYSIS_OK', listing, analysis },
+    { type: 'BEGIN_DECOMPOSE' },
+    { type: 'DECOMPOSE_OK', workstreams, note: 'first attempt failed' },
+    { type: 'BACK_TO_ANALYZED' },
+    { type: 'BEGIN_DECOMPOSE' },
+  );
+  assert.equal(s.stage, 'decomposing');
+  assert.equal(s.modelNote, undefined, 'cleared while the retry is in flight');
+  s = run(s, { type: 'DECOMPOSE_OK', workstreams });
+  assert.equal(s.modelNote, undefined);
+});
+
+test('PROPOSAL_FAIL surfaces the error and stays on decomposed', () => {
+  let s = run(
+    initialState,
+    attached(),
+    { type: 'BEGIN_ANALYSIS' },
+    { type: 'ANALYSIS_OK', listing, analysis },
+    { type: 'BEGIN_DECOMPOSE' },
+    { type: 'DECOMPOSE_OK', workstreams },
+    { type: 'PROPOSAL_FAIL', error: 'builder threw' },
+  );
+  assert.equal(s.stage, 'decomposed', 'the user can retry the step');
+  assert.equal(s.error, 'builder threw');
+  assert.equal(s.modelNote, undefined);
+
+  // Ignored once the proposal actually exists.
+  let p = run(s, { type: 'PROPOSAL_BUILT', proposal });
+  p = run(p, { type: 'PROPOSAL_FAIL', error: 'late' });
+  assert.equal(p.stage, 'proposal');
+  assert.equal(p.error, undefined);
 });
 
 /* ---------------------------------------------------------- */

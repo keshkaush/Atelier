@@ -6,21 +6,27 @@
      · depth  — do not descend past MAX_DEPTH segments
      · total  — stop after MAX_ENTRIES entries, set truncated
 
-   It deliberately does NOT apply the analysis ignore rules — analyze.ts
-   owns those, and surfacing the noise (node_modules, dist, .env) is the
-   point of the Analyze stage. It only skips DESCENDING into the two
-   directories that would blow the budget instantly (node_modules/.git);
-   their top-level entries are still listed so the tally is honest.
+   It does NOT decide what is "noise" for the analysis — analyze.ts owns
+   that, and surfacing the ignored tally is the point of the Analyze
+   stage. But it must not SPEND ITS BUDGET inside dependency or build
+   directories: a depth-first walk that descends into `.venv` exhausts
+   the entry cap before it ever reaches `src/`, and the analysis then
+   describes a virtualenv instead of the project. So every directory
+   named in the shared ignore manifest (plus `.git`) is recorded as an
+   entry but never descended into. The tally stays honest; the budget
+   goes to real source.
    ============================================================ */
 
 import { readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
+import { IGNORE_DIR_NAMES } from './ignore.mjs';
+
 export const MAX_DEPTH = 6;
 export const MAX_ENTRIES = 5000;
 
-/** Descend into these but don't recurse (keeps the walk cheap). */
-const NO_DESCEND = new Set(['node_modules', '.git']);
+/** Record these, never recurse into them (keeps the walk cheap and honest). */
+export const NO_DESCEND = new Set([...IGNORE_DIR_NAMES, '.git']);
 
 /** Lower-case extension including the dot, files only. */
 function extOf(name) {
@@ -90,7 +96,7 @@ export function walk(rootReal, opts = {}) {
         ...(size != null ? { size } : {}),
       });
       const canDescend =
-        isDir && depth + 1 <= maxDepth && !NO_DESCEND.has(d.name);
+        isDir && depth + 1 <= maxDepth && !NO_DESCEND.has(d.name.toLowerCase());
       if (canDescend) toDescend.push({ abs: path.join(abs, d.name), rel: childRel, depth: depth + 1 });
     }
 

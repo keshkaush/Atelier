@@ -892,6 +892,135 @@ a {
   font-weight: 600;
 }
 
+/* deliverable (brief console, on completion) -------------------- */
+.deliverable {
+  margin-top: 2.4rem;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  animation: rise 0.4s ease both;
+}
+
+.deliverable__head {
+  padding: 1.4rem 1.5rem 1.2rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.deliverable__kicker {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 0.5rem;
+}
+
+.deliverable__headline {
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  font-weight: 400;
+  line-height: 1.2;
+  color: var(--ink);
+  margin-bottom: 0.7rem;
+}
+
+.deliverable__brief {
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+  max-width: 46rem;
+}
+
+.deliverable__brief-label {
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-right: 0.6rem;
+}
+
+.deliverable__sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 0;
+}
+
+.deliverable__section {
+  padding: 1.1rem 1.5rem;
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.deliverable__section:last-child {
+  border-right: none;
+}
+
+.deliverable__section-top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.deliverable__desk {
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.deliverable__title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--st-done);
+}
+
+.deliverable__body {
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.deliverable__body strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.deliverable__open {
+  padding: 1.1rem 1.5rem 1.3rem;
+  border-left: 2px solid var(--st-warn);
+}
+
+.deliverable__open-label {
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 0.5rem;
+}
+
+.deliverable__open-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.deliverable__open-list li {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+  padding-left: 0.9rem;
+  position: relative;
+}
+
+.deliverable__open-list li::before {
+  content: '—';
+  position: absolute;
+  left: 0;
+  color: var(--ink-3);
+}
+
 /* activity log ------------------------------------------------- */
 .log {
   border: 1px solid var(--ink);
@@ -1310,6 +1439,26 @@ a {
   padding: 0.7rem 0.9rem;
   font-size: 0.85rem;
   margin: 1.2rem 0;
+}
+
+/* Non-fatal: a stage ran its deterministic path instead of the model. */
+.ws-note {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  border-left: 2px solid var(--rule);
+  padding: 0.15rem 0 0.15rem 0.7rem;
+  margin: 1.2rem 0;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+.ws-note__label {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
 }
 
 /* --- attach (stage 1) --------------------------------------- */

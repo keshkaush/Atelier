@@ -41,6 +41,36 @@ export function configFromEnv(): ModelConfig | null {
   };
 }
 
+/** Ceiling on any single model request. Generous: these are small prompts. */
+const DEFAULT_TIMEOUT_MS = 60_000;
+
+/**
+ * Combine a caller signal with a timeout into one controller-backed
+ * signal. `AbortSignal.any` / `AbortSignal.timeout` are ES2024 and outside
+ * this project's lib target, so the wiring is explicit.
+ *
+ * Returns the signal plus a `done()` the caller MUST invoke when the
+ * request settles, so a successful fast reply doesn't leave a 60s timer
+ * holding the event loop (which would hang `node --test` runs).
+ */
+function composeSignals(
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; done: () => void } {
+  const ctrl = new AbortController();
+  const timer = setTimeout(
+    () => ctrl.abort(new Error('The model request timed out.')),
+    timeoutMs,
+  );
+  const done = () => clearTimeout(timer);
+  ctrl.signal.addEventListener('abort', done, { once: true });
+  if (signal) {
+    if (signal.aborted) ctrl.abort(signal.reason);
+    else signal.addEventListener('abort', () => ctrl.abort(signal.reason), { once: true });
+  }
+  return { signal: ctrl.signal, done };
+}
+
 /**
  * One chat completion. Returns the assistant's text.
  * Use this per desk: give each desk a system prompt (its mandate) and the
@@ -49,7 +79,7 @@ export function configFromEnv(): ModelConfig | null {
 export async function complete(
   cfg: ModelConfig,
   messages: ChatMessage[],
-  opts: { temperature?: number; signal?: AbortSignal } = {},
+  opts: { temperature?: number; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -59,26 +89,34 @@ export async function complete(
   if (cfg.appName) headers['X-Title'] = cfg.appName;
   if (cfg.appUrl) headers['HTTP-Referer'] = cfg.appUrl;
 
-  const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers,
-    signal: opts.signal,
-    body: JSON.stringify({
-      model: cfg.model,
-      messages,
-      temperature: opts.temperature ?? 0.7,
-    }),
-  });
+  // A model that never answers must not leave a stage busy forever: the
+  // request is bounded, and the abort surfaces as a normal rejection so
+  // the caller's deterministic fallback runs.
+  const guard = composeSignals(opts.signal, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers,
+      signal: guard.signal,
+      body: JSON.stringify({
+        model: cfg.model,
+        messages,
+        temperature: opts.temperature ?? 0.7,
+      }),
+    });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`Model request failed (${res.status}). ${detail}`);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Model request failed (${res.status}). ${detail}`);
+    }
+
+    const data = (await res.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+    return data.choices?.[0]?.message?.content?.trim() ?? '';
+  } finally {
+    guard.done();
   }
-
-  const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  return data.choices?.[0]?.message?.content?.trim() ?? '';
 }
 
 /**

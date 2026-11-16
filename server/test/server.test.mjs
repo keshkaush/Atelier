@@ -90,6 +90,33 @@ test('walk does not descend into node_modules but still lists it', () => {
   );
 });
 
+test('walk does not descend into a virtualenv, and still reaches real source', () => {
+  const dir = makeRepo();
+  // A venv sorts before `src`, so a walker that descends into it spends the
+  // whole budget there and never sees the project.
+  mkdirSync(path.join(dir, '.venv', 'Lib', 'site-packages', 'coverage', 'htmlfiles'), {
+    recursive: true,
+  });
+  writeFileSync(
+    path.join(dir, '.venv', 'Lib', 'site-packages', 'coverage', 'htmlfiles', 'style.css'),
+    'body{}\n',
+  );
+  const { entries } = walk(dir);
+  assert.equal(entries.find((e) => e.path === '.venv')?.kind, 'dir', '.venv itself listed');
+  assert.ok(
+    !entries.some((e) => e.path.startsWith('.venv/')),
+    'did not descend into .venv',
+  );
+  assert.ok(entries.some((e) => e.path === 'src/App.tsx'), 'real source still reached');
+});
+
+test('walk’s no-descend set matches the shared ignore manifest', async () => {
+  const { NO_DESCEND } = await import('../lib/walk.mjs');
+  const { IGNORE_DIR_NAMES } = await import('../lib/ignore.mjs');
+  const expected = new Set([...IGNORE_DIR_NAMES, '.git']);
+  assert.deepEqual([...NO_DESCEND].sort(), [...expected].sort());
+});
+
 test('walk respects the entry cap', () => {
   const dir = makeRepo();
   for (let i = 0; i < 20; i++) writeFileSync(path.join(dir, `f${i}.txt`), 'x');
@@ -323,6 +350,13 @@ test('apply refuses every unsafe path shape', async () => {
     ['src/a\u0000b.txt', /NUL/i],
     ['.git/config', /\.git/i],
     ['src/.git/hooks/pre-commit', /\.git/i],
+    ['.venv/Lib/site-packages/coverage/htmlfiles/style.css', /not project source/i],
+    ['node_modules/react/index.js', /not project source/i],
+    ['dist/assets/app.js', /not project source/i],
+    ['src/__pycache__/mod.pyc', /not project source/i],
+    ['.env', /environment file/i],
+    ['config/.env.local', /environment file/i],
+    ['certs/server.pem', /key file/i],
     ['nul.txt', /reserved/i],
     ['SRC/CON', /reserved/i],
     ['lpt1.md', /reserved/i],
